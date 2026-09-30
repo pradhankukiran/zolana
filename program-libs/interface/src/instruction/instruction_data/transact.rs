@@ -155,29 +155,30 @@ pub fn validate_interface_transfers(
     Ok(())
 }
 
-/// Validate the declared input trees against the inputs that reference them.
+/// Validate the declared input trees against the inputs that reference them and
+/// return each declared tree's input count, zero past the declared trees.
 ///
-/// Inputs may reference their trees in any order, but every declared context
-/// must be referenced by at least one input.
+/// Inputs may reference their trees in any order, but every input must
+/// reference a declared context and every declared context must be referenced
+/// by at least one input, so the counts cover every input.
 pub fn validate_input_tree_contexts(
     inputs: &[InputUtxo],
     tree_contexts: &[TreeContext],
-) -> Result<(), ShieldedPoolError> {
-    let context_count = tree_contexts.len();
-    if context_count == 0 || context_count > MAX_INPUT_TREES {
-        return Err(ShieldedPoolError::InvalidTreeContextCount);
-    }
-    let mut referenced: u32 = 0;
+) -> Result<[usize; MAX_INPUT_TREES], ShieldedPoolError> {
+    let mut counts = [0usize; MAX_INPUT_TREES];
+    let declared = counts
+        .get_mut(..tree_contexts.len())
+        .filter(|declared| !declared.is_empty())
+        .ok_or(ShieldedPoolError::InvalidTreeContextCount)?;
     for input in inputs {
-        if usize::from(input.tree_index) >= context_count {
-            return Err(ShieldedPoolError::InputTreeIndexOutOfRange);
-        }
-        referenced |= 1 << input.tree_index;
+        *declared
+            .get_mut(usize::from(input.tree_index))
+            .ok_or(ShieldedPoolError::InputTreeIndexOutOfRange)? += 1;
     }
-    if referenced.count_ones() as usize != context_count {
+    if declared.contains(&0) {
         return Err(ShieldedPoolError::UnreferencedTreeContext);
     }
-    Ok(())
+    Ok(counts)
 }
 
 /// How an output's owner tag is carried on the wire (spec: `transact`

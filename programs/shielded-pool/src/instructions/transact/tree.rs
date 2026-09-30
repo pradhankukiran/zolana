@@ -8,7 +8,7 @@ use zolana_interface::{
     instruction::instruction_data::transact::{TransactIxDataRef, TreeContext, NO_UTXO_ROOT},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     tree_slot::{pack_input_flags, resolve_tree_slot, TreeSlot},
-    INPUT_TREES,
+    INPUT_TREES, MAX_INPUT_TREES,
 };
 use zolana_tree::TreeAccount;
 
@@ -28,8 +28,10 @@ use crate::instructions::{
 /// 3. Queue its nullifiers and credit its insertion fee.
 /// 4. Release the tree-data borrow, collect the fee and create its PDAs.
 /// 5. Retain its first queue sequence for the event.
-/// 6. Reject unmatched tree contexts, inputs or PDA accounts.
-/// 7. Assign the tree slots and packed input flags to the proof inputs.
+/// 6. Assign the tree slots and packed input flags to the proof inputs.
+///
+/// `tree_input_counts` is the result of `validate_input_tree_contexts`: every
+/// declared tree has at least one input and the counts cover every input.
 ///
 /// Inputs may reference their trees in any order. Each tree queues the inputs
 /// that reference it in input order, so the tree library assigns them
@@ -41,6 +43,7 @@ use crate::instructions::{
 pub(crate) fn apply_input_trees(
     accounts: &mut TransactAccounts<'_>,
     ix: &TransactIxDataRef<'_>,
+    tree_input_counts: [usize; MAX_INPUT_TREES],
     proof_inputs: &mut TransactProofInputs,
 ) -> Result<ArrayVec<InputTreeSequence, INPUT_TREES>, ProgramError> {
     let TransactAccounts {
@@ -53,24 +56,27 @@ pub(crate) fn apply_input_trees(
     let mut sequences: ArrayVec<InputTreeSequence, INPUT_TREES> = ArrayVec::new();
     let mut tree_slots: ArrayVec<TreeSlot, INPUT_TREES> = ArrayVec::new();
     let mut allow_dummy_inputs = true;
-    let mut queued_inputs = 0usize;
     if nullifier_pdas.len() != ix.inputs.len() {
         return Err(ShieldedPoolError::InvalidNullifierPda.into());
     }
+    // Every declared context needs its tree account and its input count, so
+    // the zip below visits every declared tree.
+    if input_trees.len() != ix.tree_contexts.len() || ix.tree_contexts.len() > MAX_INPUT_TREES {
+        return Err(shape.into());
+    }
 
-    for (tree_index, (input_tree_account, context)) in
-        (0u8..).zip(input_trees.iter_mut().zip(&ix.tree_contexts))
-    {
+    for (tree_index, ((input_tree_account, context), tree_input_count)) in (0u8..).zip(
+        input_trees
+            .iter_mut()
+            .zip(&ix.tree_contexts)
+            .zip(tree_input_counts),
+    ) {
         // 1. Select the inputs that reference this tree, in input order.
         let tree_inputs = || {
             ix.inputs
                 .iter()
                 .filter(move |input| input.tree_index == tree_index)
         };
-        let tree_input_count = tree_inputs().count();
-        if tree_input_count == 0 {
-            return Err(shape.into());
-        }
         let input_tree_address = input_tree_account.address().to_bytes();
         let result = {
             // 2. Load the tree, combine its dummy-input policy and resolve its roots.
@@ -119,21 +125,11 @@ pub(crate) fn apply_input_trees(
                 .map(|(nullifier_pda, input)| (&mut **nullifier_pda, &input.nullifier_hash)),
             &result,
         )?;
-        queued_inputs += tree_input_count;
         // 5. Retain its first queue sequence for the event.
         sequences.try_push(result.input_tree).map_err(|_| shape)?;
     }
-    // 6. Every declared context must have been paired with both a tree account
-    // and its inputs; unqueued inputs or mismatched counts mean the
-    // instruction data and the account list disagree.
-    if queued_inputs != ix.inputs.len()
-        || sequences.len() != ix.tree_contexts.len()
-        || sequences.len() != input_trees.len()
-    {
-        return Err(shape.into());
-    }
 
-    // 7. Assign the tree slots and packed input flags to the proof inputs.
+    // 6. Assign the tree slots and packed input flags to the proof inputs.
     let input_flags = pack_input_flags(
         allow_dummy_inputs,
         ix.inputs.iter().map(|input| input.tree_index),
