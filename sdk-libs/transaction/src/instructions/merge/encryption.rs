@@ -29,7 +29,12 @@ impl MergeTransaction {
             .ok_or(TransactionError::NoInputs)?
             .nullifier;
         let mut requests = vec![DeriveRequest::MergeOutputBlinding { first_nullifier }];
-        for slot in self.inputs.len()..self.validated_inputs.padded_input_count {
+        let dummy_slots = if self.compact_padding {
+            0..0
+        } else {
+            self.inputs.len()..self.validated_inputs.padded_input_count
+        };
+        for slot in dummy_slots {
             let slot_index = u8::try_from(slot).map_err(|_| TransactionError::TooManyInputs {
                 got: slot + 1,
                 max: usize::from(u8::MAX),
@@ -83,6 +88,7 @@ impl MergeTransaction {
             output_tree_id,
             ring_program_id,
             output_ring_data_hash,
+            compact_padding,
         } = self;
         validate_merge_owner(sender, &inputs)?;
         let mut output_utxo =
@@ -132,6 +138,7 @@ impl MergeTransaction {
             &mut input_utxos,
             validated_inputs.padded_input_count,
             dummy_nullifiers,
+            compact_padding,
         )?;
         Ok(MergeProofInputs {
             input_utxos,

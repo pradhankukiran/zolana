@@ -65,6 +65,15 @@ impl SppProofInputUtxo {
         })
     }
 
+    /// Create compact padding in the given tree: a dummy that publishes
+    /// nullifier 0, so the instruction leaves it out and SPP creates nothing for
+    /// it. It cannot fill input slot 0.
+    pub fn compact(tree_id: u16) -> Result<Self, TransactionError> {
+        let mut input = Self::dummy_with_blinding([0u8; 32], tree_id)?;
+        input.nullifier = [0u8; 32];
+        Ok(input)
+    }
+
     pub fn with_cache_slot(mut self, slot: u8) -> Result<Self, TransactionError> {
         if usize::from(slot) >= CACHE_CAPACITY {
             return Err(TransactionError::CacheSlotOutOfRange { slot });
@@ -78,6 +87,10 @@ impl SppProofInputUtxo {
 
     pub fn is_dummy(&self) -> bool {
         self.utxo.owner.is_zero()
+    }
+
+    pub fn is_compact(&self) -> bool {
+        self.is_dummy() && self.nullifier == [0u8; 32]
     }
 
     pub fn hash(&self) -> [u8; 32] {

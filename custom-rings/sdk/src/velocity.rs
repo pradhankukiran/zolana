@@ -322,6 +322,7 @@ impl VelocityPlanInput<'_> {
             owner_tag: Some(facts.namespace.to_bytes()),
             data: Data::default(),
             cache_slot: None,
+            compact: false,
         };
         let counters_body = CountersSeal {
             tx: self.tx_viewing_key,

@@ -8,7 +8,7 @@ use zolana_event::OutputDataEncoding;
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_padded_input_count, MergeProofInputs,
+        merge_circuit_width, merge_dummy_nullifier, merge_output_blinding, MergeProofInputs,
         MergeTransaction,
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
@@ -92,7 +92,7 @@ fn recover(
 fn merge_count_boundaries_are_explicit() {
     let owner = keypair(7);
     for (count, padded) in [
-        (0, Some(8)),
+        (0, None),
         (1, Some(8)),
         (7, Some(8)),
         (8, Some(8)),
@@ -102,7 +102,7 @@ fn merge_count_boundaries_are_explicit() {
         (37, None),
         (usize::MAX, None),
     ] {
-        assert_eq!(merge_padded_input_count(count), padded);
+        assert_eq!(merge_circuit_width(count), padded);
     }
     assert_eq!(
         MergeTransaction::new(vec![]).err(),
@@ -184,6 +184,30 @@ fn both_merge_sizes_preserve_inputs_and_recover_the_exact_sum() {
             result.output_utxo.hash(16).unwrap(),
             result.output_hash().unwrap()
         );
+    }
+}
+
+/// `new_compact` pads the merge circuit with compact slots and requests no
+/// deterministic dummy nullifiers for them.
+#[test]
+fn compact_merge_pads_with_compact_slots() {
+    let owner = keypair(7);
+    for (count, padded) in [(3, 8), (9, 36)] {
+        let notes = inputs(&owner, count);
+        let result = MergeTransaction::new_compact(notes.clone())
+            .unwrap()
+            .encrypt(&owner)
+            .unwrap();
+        assert_eq!(result.input_utxos.len(), padded);
+        for (actual, expected) in result.input_utxos.iter().zip(&notes) {
+            assert_preserved(actual, expected);
+        }
+        assert!(result
+            .input_utxos
+            .iter()
+            .skip(notes.len())
+            .all(SppProofInputUtxo::is_compact));
+        assert!(result.dummy_nullifiers().is_empty());
     }
 }
 

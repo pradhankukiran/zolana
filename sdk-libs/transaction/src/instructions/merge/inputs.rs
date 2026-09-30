@@ -1,15 +1,7 @@
 use zolana_keypair::ShieldedAddress;
 
-use super::{MergeProofInputs, MAX_MERGE_INPUTS, MERGE_SUPPORTED_INPUT_COUNTS};
+use super::{merge_circuit_width, MergeProofInputs, MAX_MERGE_INPUTS};
 use crate::{error::TransactionError, utxo::SppProofInputUtxo, Mint, WalletUtxo};
-
-pub fn merge_padded_input_count(real_inputs: usize) -> Option<usize> {
-    MERGE_SUPPORTED_INPUT_COUNTS
-        .iter()
-        .copied()
-        .filter(|supported| *supported >= real_inputs)
-        .min()
-}
 
 pub(crate) fn validate_merge_inputs(
     inputs: &[WalletUtxo],
@@ -19,7 +11,7 @@ pub(crate) fn validate_merge_inputs(
         return Err(TransactionError::NoInputs);
     }
     let padded_input_count =
-        merge_padded_input_count(inputs.len()).ok_or(TransactionError::TooManyInputs {
+        merge_circuit_width(inputs.len()).ok_or(TransactionError::TooManyInputs {
             got: inputs.len(),
             max: MAX_MERGE_INPUTS,
         })?;
@@ -69,10 +61,13 @@ pub(crate) struct MergeInputs {
     pub padded_input_count: usize,
 }
 
+/// Pad with random dummies publishing `dummy_nullifiers`, or with compact
+/// padding when `compact` is set, in which case `dummy_nullifiers` is empty.
 pub(crate) fn pad_with_dummies(
     inputs: &mut Vec<SppProofInputUtxo>,
     padded_input_count: usize,
     dummy_nullifiers: &[[u8; 32]],
+    compact: bool,
 ) -> Result<(), TransactionError> {
     let want =
         padded_input_count
@@ -81,13 +76,19 @@ pub(crate) fn pad_with_dummies(
                 got: inputs.len(),
                 max: padded_input_count,
             })?;
+    let tree_id = inputs.first().ok_or(TransactionError::NoInputs)?.tree_id;
+    if compact {
+        for _ in 0..want {
+            inputs.push(SppProofInputUtxo::compact(tree_id)?);
+        }
+        return Ok(());
+    }
     if dummy_nullifiers.len() != want {
         return Err(TransactionError::IncompleteDerivation {
             got: dummy_nullifiers.len(),
             want,
         });
     }
-    let tree_id = inputs.first().ok_or(TransactionError::NoInputs)?.tree_id;
     for nullifier in dummy_nullifiers {
         let mut input = SppProofInputUtxo::dummy(tree_id)?;
         input.nullifier = *nullifier;
@@ -124,7 +125,7 @@ impl MergeProofInputs {
     pub fn dummy_nullifiers(&self) -> Vec<[u8; 32]> {
         self.input_utxos
             .iter()
-            .filter(|input| input.is_dummy())
+            .filter(|input| input.is_dummy() && !input.is_compact())
             .map(|input| input.nullifier)
             .collect()
     }

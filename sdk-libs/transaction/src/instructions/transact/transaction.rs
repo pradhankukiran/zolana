@@ -74,6 +74,25 @@ impl SppProofInputs {
         {
             return Err(TransactionError::RealOutputAfterDummy { index });
         }
+        // Compact padding forms the trailing suffix SPP fills back in, and input
+        // slot 0 seeds the output blindings, so it is never compact.
+        if self
+            .input_utxos
+            .first()
+            .is_some_and(SppProofInputUtxo::is_compact)
+        {
+            return Err(TransactionError::DummyInFirstInputSlot);
+        }
+        if let Some(index) =
+            real_slot_after_dummy(self.input_utxos.iter().map(SppProofInputUtxo::is_compact))
+        {
+            return Err(TransactionError::InputAfterCompactPadding { index });
+        }
+        if let Some(index) =
+            real_slot_after_dummy(self.output_utxos.iter().map(SppProofOutputUtxo::is_compact))
+        {
+            return Err(TransactionError::OutputAfterCompactPadding { index });
+        }
         Ok(())
     }
 

@@ -89,6 +89,7 @@ pub struct ConfidentialTransaction {
     input_tree_ids: Vec<u16>,
     ring_program_id: Option<Address>,
     padded_inputs: Option<Vec<SppProofInputUtxo>>,
+    compact_padding: bool,
 }
 
 impl ConfidentialTransaction {
@@ -188,7 +189,18 @@ impl ConfidentialTransaction {
             input_tree_ids,
             ring_program_id: None,
             padded_inputs: None,
+            compact_padding: false,
         })
+    }
+
+    /// Like [`new`](Self::new), but pads unused slots with compact padding
+    /// instead of random dummies. Compact padding is left out of the
+    /// instruction and costs no nullifier account, queue entry or tree leaf, but
+    /// the transaction then reveals its real input and output counts.
+    pub fn new_compact(inputs: Vec<WalletUtxo>, payer: Address) -> Result<Self, TransactionError> {
+        let mut transaction = Self::new(inputs, payer)?;
+        transaction.compact_padding = true;
+        Ok(transaction)
     }
 
     /// Transfer SPL tokens to a recipient shielded address.
