@@ -1,14 +1,16 @@
 use serde::Serialize;
 use zeroize::Zeroizing;
-use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::{
     instruction::{
         instruction_data::{
             merge_ring::MergeRingIxData,
-            merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
+            merge_transact::{
+                merge_circuit_width, MergeExternalDataHash, MergeProof, MergeTransactIxData,
+            },
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
+    state::cache::padded_right_hash_chain_4,
     tree_slot::tree_id_field,
 };
 use zolana_keypair::{Curve, NullifierKey};
@@ -25,9 +27,11 @@ use super::{
 };
 use crate::{
     prover::{
-        field::right_align_slice, json::MergeOutputParamsJson,
-        transact::assembly::assemble_outputs, verify::MergeProofStatement, ExpectedProvingKey,
-        Proof, ProofCompressed, ProofInputUtxo,
+        field::right_align_slice,
+        json::MergeOutputParamsJson,
+        transact::assembly::{assemble_outputs, without_compact_padding},
+        verify::MergeProofStatement,
+        ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo,
     },
     ClientError,
 };
@@ -113,7 +117,9 @@ impl IndexedMergePreparation {
             }
             saw_dummy |= dummy;
             let utxo = ProofInputUtxo::try_from(input)?;
-            let nullifier = if dummy {
+            let nullifier = if input.is_compact() {
+                [0u8; 32]
+            } else if dummy {
                 merge_dummy_nullifier(
                     &nullifier_key,
                     &first_nullifier,
@@ -187,7 +193,7 @@ impl IndexedMergePreparation {
         )
         .hash()?;
         let public_inputs = vec![
-            create_hash_chain_4_from_slice(&nullifiers)?,
+            padded_right_hash_chain_4(&nullifiers, nullifiers.len())?,
             output_hash,
             tree_id_field(merge.output_tree_id),
             private,
@@ -245,7 +251,7 @@ impl IndexedMergePreparation {
                 c: [0; 32],
             },
             output_utxo_hash: output_hash,
-            nullifiers,
+            nullifiers: without_compact_padding(&nullifiers).to_vec(),
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
             private_tx_hash: private,
@@ -286,7 +292,8 @@ impl Request for PreparedIndexedMerge {
     ) -> Result<ProvenIndexedMerge, ClientError> {
         let IndexedProof { proof, resolution } = self.request.finish(proof, resolution)?;
         let statement = MergeProofStatement {
-            n_inputs: self.data.nullifiers.len(),
+            n_inputs: merge_circuit_width(self.data.nullifiers.len())
+                .ok_or_else(invalid_resolution)?,
             public_input_hash: resolution.public_input_hash,
         };
         if self.ring_data_hash.is_some() {

@@ -6,6 +6,7 @@ use zolana_hasher::{
 };
 use zolana_interface::{
     instruction::instruction_data::transact::{InputUtxo, TreeContext, NO_UTXO_ROOT},
+    state::cache::padded_right_hash_chain_4,
     tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, MAX_INPUT_TREES,
 };
@@ -26,7 +27,7 @@ use crate::{
         transact::witness::{validate_nullifier_proof, SpendProof},
         ProofInputUtxo, TransferInput, TransferOutput,
     },
-    rpc::{NonInclusionProof, STATE_TREE_HEIGHT},
+    rpc::{NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
 
 /// One input ready for the witness: the input UTXO the builder produced and the
@@ -332,6 +333,27 @@ pub(crate) fn assemble_inputs(
                 tree_id: input_utxo.utxo.tree_id,
             })?;
         input_tree_indexes.push(tree_index);
+        // Compact padding publishes nullifier 0 and keeps the zero witness the
+        // circuit ignores for that slot.
+        if input_utxo.utxo.is_compact() {
+            inputs.push(TransferInput {
+                utxo: ProofInputUtxo::try_from(&input_utxo.utxo)?,
+                is_dummy: BigUint::from(1u8),
+                state_path_elements: vec![BigUint::ZERO; STATE_TREE_HEIGHT],
+                state_path_index: BigUint::ZERO,
+                nullifier_low_value: BigUint::ZERO,
+                nullifier_next_value: BigUint::ZERO,
+                nullifier_low_path_elements: vec![BigUint::ZERO; NULLIFIER_TREE_HEIGHT],
+                nullifier_low_path_index: BigUint::ZERO,
+                tree_slot: BigUint::from(tree_index),
+                nullifier: BigUint::ZERO,
+                owner_pk_hash: BigUint::ZERO,
+                nullifier_secret: Some(BigUint::ZERO),
+            });
+            input_hashes.push([0u8; 32]);
+            nullifiers.push([0u8; 32]);
+            continue;
+        }
         if input_utxo.utxo.is_dummy() {
             let nf = input_utxo
                 .nullifier_proof
@@ -469,11 +491,14 @@ pub(crate) fn assemble_outputs(
         // and is indistinguishable from a real one; the circuit requires the
         // tag to identify a real input signer or output owner, while
         // `nullifier_pk` is unused (0).
+        // Compact padding publishes owner tag 0, which SPP pads the owner chain
+        // with; no identity folds to 0.
         let (owner_pk_field, nullifier_pk) = match &output.owner_address {
             Some(address) => (
                 address.signing_pubkey.owner_proof_input_hash()?,
                 address.nullifier_pubkey,
             ),
+            None if output.is_compact() => ([0u8; 32], [0u8; 32]),
             None => (
                 solana_owner_identity(&output.owner_tag.unwrap_or([0u8; 32]))?,
                 [0u8; 32],
@@ -554,9 +579,11 @@ impl<Roots> PublicInputs<'_, Roots> {
     ) -> Result<Vec<[u8; 32]>, ClientError> {
         let slots = self.public_transfers.interleaved();
         let mut elements = Vec::with_capacity(12 + after_private_tx.len() + slots.len());
+        // The nullifier, output and output owner chains fold to the right over
+        // the circuit width; compact padding contributes zeros.
         elements.extend([
-            create_hash_chain_4_from_slice(self.nullifiers)?,
-            create_hash_chain_4_from_slice(self.output_hashes)?,
+            padded_right_hash_chain_4(self.nullifiers, self.nullifiers.len())?,
+            padded_right_hash_chain_4(self.output_hashes, self.output_hashes.len())?,
             tree_id_field(self.output_tree_id),
             *self.private_tx,
         ]);
@@ -569,7 +596,10 @@ impl<Roots> PublicInputs<'_, Roots> {
             *self.input_flags,
         ]);
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
-            elements.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
+            elements.push(padded_right_hash_chain_4(
+                output_owner_pk_hashes,
+                self.output_hashes.len(),
+            )?);
             elements.extend(self.cached_inputs);
         }
         Ok(elements)
@@ -577,7 +607,8 @@ impl<Roots> PublicInputs<'_, Roots> {
 }
 
 /// Pair each published nullifier with the index of the tree its input is
-/// nullified in, in slot order. The two vectors come from one
+/// nullified in, in slot order, leaving out the trailing compact padding
+/// (nullifier 0), which SPP fills back in. The two vectors come from one
 /// [`assemble_inputs`] pass, so a length mismatch is a builder bug.
 pub fn input_utxos_from_nullifiers(
     nullifiers: &[[u8; 32]],
@@ -589,7 +620,7 @@ pub fn input_utxos_from_nullifiers(
             expected: nullifiers.len(),
         });
     }
-    Ok(nullifiers
+    Ok(without_compact_padding(nullifiers)
         .iter()
         .zip(tree_indexes)
         .map(|(nullifier_hash, tree_index)| InputUtxo {
@@ -597,6 +628,17 @@ pub fn input_utxos_from_nullifiers(
             tree_index: *tree_index,
         })
         .collect())
+}
+
+/// The published values the instruction carries: every slot except the
+/// trailing compact padding (zero), which SPP fills back in.
+pub(crate) fn without_compact_padding(values: &[[u8; 32]]) -> &[[u8; 32]] {
+    let compact = values
+        .iter()
+        .rev()
+        .take_while(|value| **value == [0u8; 32])
+        .count();
+    values.get(..values.len() - compact).unwrap_or_default()
 }
 
 impl TransferInputUtxo {
@@ -613,6 +655,12 @@ impl TransferInputUtxo {
             }
             if self.proof.is_some() {
                 return Err(ClientError::UnexpectedInputProof { index });
+            }
+            if input.is_compact() {
+                if self.nullifier_proof.is_some() {
+                    return Err(ClientError::UnexpectedInputProof { index });
+                }
+                return Ok(());
             }
             let proof = self
                 .nullifier_proof
@@ -668,7 +716,10 @@ pub(crate) fn assemble_transaction(
     allow_dummy_inputs: bool,
 ) -> Result<AssembledTransaction, ClientError> {
     if !allow_dummy_inputs {
-        if let Some(index) = inputs.iter().position(|input| input.utxo.is_dummy()) {
+        if let Some(index) = inputs
+            .iter()
+            .position(|input| input.utxo.is_dummy() && !input.utxo.is_compact())
+        {
             return Err(ClientError::NonSpendInputNotAllowed { index });
         }
     }

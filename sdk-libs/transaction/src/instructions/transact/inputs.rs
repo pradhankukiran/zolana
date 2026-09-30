@@ -135,6 +135,25 @@ impl SppProofInputs {
         Ok(hashes)
     }
 
+    /// Replace every random dummy input after slot 0 with compact padding. A
+    /// tree near its nullifier capacity rejects random dummy inputs but accepts
+    /// compact padding, which inserts no nullifier. Call it before fetching the
+    /// dummy nullifier proofs, which compact padding does not need.
+    pub fn compact_input_padding(&mut self) -> Result<(), TransactionError> {
+        let tree_id = *input_tree_ids(&self.input_utxos)?
+            .first()
+            .ok_or(TransactionError::NoInputs)?;
+        for input_utxo in self
+            .input_utxos
+            .iter_mut()
+            .skip(1)
+            .filter(|input_utxo| input_utxo.is_dummy() && !input_utxo.is_compact())
+        {
+            *input_utxo = SppProofInputUtxo::compact(tree_id)?;
+        }
+        Ok(())
+    }
+
     pub fn dummy_nullifiers(&self) -> Vec<[u8; 32]> {
         self.input_utxos
             .iter()

@@ -260,6 +260,57 @@ fn eddsa_transfer_all_shapes_proofs_verify() {
     }
 }
 
+/// A (2,3) transfer whose padding is compact: input slot 1 publishes nullifier 0
+/// and needs no nullifier proof, and output slots 1 and 2 publish hash 0.
+#[test]
+fn compact_transfer_2_3_proof_verifies() {
+    start_prover();
+    let (real_input, key) = real_input();
+    let owner_tag = real_input
+        .utxo
+        .utxo
+        .owner
+        .confidential_view_tag()
+        .expect("real input owner tag");
+    let compact_input = TransferInputUtxo {
+        utxo: SppProofInputUtxo::compact(TEST_TREE_ID).unwrap(),
+        proof: None,
+        nullifier_proof: None,
+    };
+    let inputs = vec![real_input, compact_input];
+    let compact_output = || SppProofOutputUtxo {
+        compact: true,
+        ..Default::default()
+    };
+    let mut outputs = vec![dummy_output(owner_tag), compact_output(), compact_output()];
+    let blinding_seed = [44u8; 32];
+    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
+    let prover = TransferProver {
+        blinding_seed,
+        output_tree_id: TEST_TREE_ID,
+        inputs,
+        outputs,
+        external_data: dummy_external_data(owner_tag, 1),
+        public_transfers: PublicTransfers::default(),
+        signer_pk_hashes: vec![
+            [0u8; 32],
+            solana_owner_identity(&owner_tag).expect("owner signer hash"),
+            [0u8; 32],
+        ],
+        allow_dummy_inputs: false,
+        shape: Shape::new(2, 3),
+        cache_accounts: Default::default(),
+    };
+
+    let mut result = prover.build().expect("build compact witness");
+    assert_eq!(result.nullifiers.get(1), Some(&[0u8; 32]));
+    complete_inputs(&mut result.inputs.inputs, &[key]);
+    let proof = ProverClient::local()
+        .prove_transfer(&result.inputs)
+        .expect("prove compact transfer");
+    verify_confidential_transfer_proof(&result, &proof).expect("verify compact transfer");
+}
+
 #[test]
 fn dummy_transfer_2_3_proof_verifies() {
     start_prover();

@@ -90,7 +90,9 @@ pub fn attach_input_proofs(
         .iter()
         .filter(|input| !input.is_dummy() && input.cache_slot.is_none())
         .count();
-    let dummy_count = inputs.len() - real_count;
+    // Compact padding publishes nullifier 0 and needs no proof.
+    let compact_count = inputs.iter().filter(|input| input.is_compact()).count();
+    let dummy_count = inputs.len() - real_count - compact_count;
     if proofs.len() != real_count || dummy_nullifier_proofs.len() != dummy_count {
         return Err(ClientError::InputProofCountMismatch {
             real: real_count,
@@ -103,7 +105,9 @@ pub fn attach_input_proofs(
     let mut real_index = 0;
     let mut dummy_index = 0;
     for input_utxo in inputs {
-        let (proof, nullifier_proof) = if input_utxo.is_dummy() || input_utxo.cache_slot.is_some() {
+        let (proof, nullifier_proof) = if input_utxo.is_compact() {
+            (None, None)
+        } else if input_utxo.is_dummy() || input_utxo.cache_slot.is_some() {
             let nullifier_proof = Some(
                 dummy_nullifier_proofs
                     .get(dummy_index)

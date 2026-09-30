@@ -67,12 +67,18 @@ impl IndexedTransferPreparation {
         authority: &dyn ProofAuthority,
         allow_dummy_inputs: bool,
     ) -> Result<PreparedIndexedTransfer, ClientError> {
-        let Self { transaction, rail } = self;
+        let Self {
+            mut transaction,
+            rail,
+        } = self;
+        // A tree near its nullifier capacity rejects random dummy inputs, so pad
+        // those slots with compact padding, which inserts nothing.
         if !allow_dummy_inputs {
+            transaction.compact_input_padding()?;
             if let Some(index) = transaction
                 .input_utxos
                 .iter()
-                .position(|input| input.is_dummy())
+                .position(|input| input.is_dummy() && !input.is_compact())
             {
                 return Err(ClientError::NonSpendInputNotAllowed { index });
             }

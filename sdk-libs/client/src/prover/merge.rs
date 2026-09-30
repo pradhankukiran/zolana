@@ -11,7 +11,7 @@ use zolana_interface::{
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
-    state::cache::CACHE_CAPACITY,
+    state::cache::{padded_right_hash_chain_4, CACHE_CAPACITY},
     tree_slot::{tree_id_field, tree_slots_hash_chain},
 };
 use zolana_keypair::{Curve, NullifierKey};
@@ -28,7 +28,10 @@ use crate::{
     prover::{
         field::{be, right_align, right_align_slice},
         transact::{
-            assembly::{assemble_inputs, assemble_outputs, private_tx_hash, OwnerMode},
+            assembly::{
+                assemble_inputs, assemble_outputs, private_tx_hash, without_compact_padding,
+                OwnerMode,
+            },
             witness::{attach_input_proofs, SpendProof},
         },
         MergeInputs, TreeSlotFields,
@@ -86,7 +89,7 @@ impl MergeProofResult {
             expiry_unix_ts: self.expiry_unix_ts,
             proof,
             output_utxo_hash: self.output_hash,
-            nullifiers: self.nullifiers.clone(),
+            nullifiers: without_compact_padding(&self.nullifiers).to_vec(),
             utxo_tree_root_index: self.utxo_tree_root_index,
             nullifier_tree_root_index: self.nullifier_tree_root_index,
             private_tx_hash: self.private_tx_hash,
@@ -127,6 +130,9 @@ impl MergeProver {
         let mut total = 0u64;
         tx.input_utxo_hashes()?;
         for (index, input) in tx.input_utxos.iter().enumerate() {
+            if input.is_compact() {
+                continue;
+            }
             if input.is_dummy() {
                 let slot = u8::try_from(index).map_err(|_| ClientError::TooManyInputs {
                     got: n_inputs,
@@ -224,7 +230,10 @@ impl MergeProver {
             private_tx_hash(&assembled_inputs, &assembled_outputs, &private_tx_blinding)?;
         let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
         let mut elements = vec![
-            create_hash_chain_4_from_slice(&assembled_inputs.nullifiers)?,
+            padded_right_hash_chain_4(
+                &assembled_inputs.nullifiers,
+                assembled_inputs.nullifiers.len(),
+            )?,
             output_hash,
             tree_slots_hash_chain(&assembled_inputs.tree_slots)?,
             tree_id_field(output_tree_id),
