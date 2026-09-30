@@ -72,8 +72,8 @@ implementation differences.
         2. choose a supported shape that fits both sides, or validate the
            caller's; not every input/output combination has one
         3. pad both sides, validate balance, and fix slot order and tree
-           assignment: real inputs keep the caller's order, in any tree
-           order, dummies follow them, and each input dummy is built for its
+           assignment: real inputs keep the caller's order, which may
+           interleave trees, and dummies follow them, each built for its
            assigned tree. Output padding appends dummy outputs after the
            caller's outputs and the change. Each dummy publishes the view tag
            of an input owner other than the fee payer, else of a real output
@@ -115,8 +115,8 @@ implementation differences.
 
     `ZolanaClient::prove_transact`
 
-    1. on the P-256 rail, sign `sha256(private_tx_hash || external_data_hash)` as the
-       authorization,
+    1. on the P-256 rail, sign `sha256(private_tx_hash || external_data_hash)`
+       as the authorization,
        `Tvc::sign_p256`. The transact rail authorizes through the Solana signer
        in step 7 instead.
     2. send the input commitments; the prover fetches the state-inclusion and

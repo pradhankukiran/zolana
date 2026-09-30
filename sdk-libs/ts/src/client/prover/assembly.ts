@@ -708,8 +708,9 @@ export function prepareSlots(
  * of that tree must open against the same roots and root positions, since the
  * proof publishes one slot per tree and the instruction one root position pair
  * per tree. A tree the cache supplies entirely publishes a zero state root at
- * root position `NO_UTXO_ROOT`. A dummy or cached input carries no state proof,
- * so it joins the tree it names, and takes the next dummy non-inclusion proof.
+ * root position `NO_UTXO_ROOT`. A dummy or cached input has no state proof, so
+ * it joins the tree it names and takes the next dummy non-inclusion proof.
+ *
  * `ownerField` is the caller's rail: it is the one thing Rust's `OwnerMode`
  * varies, and every rail shares the rest of this loop.
  */

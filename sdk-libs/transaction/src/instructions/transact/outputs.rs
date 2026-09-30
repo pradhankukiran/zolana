@@ -57,9 +57,9 @@ impl ConfidentialTransaction {
     ///    transfers.
     /// 2. Require at most three assets and calculate change for each one.
     /// 3. Append nonzero change in asset first-use order, using the transaction's ring.
-    /// 4. Check output capacity, append dummy outputs naming a participant and
-    ///    verify balance. A transaction naming none keeps a zero-amount SOL
-    ///    change for the sender.
+    /// 4. Check output capacity, append dummy outputs that publish a
+    ///    participant's view tag and verify balance. A transaction naming no
+    ///    participant keeps a zero-amount SOL change for the sender.
     /// 5. Convert wallet inputs to proof inputs, append dummy inputs and commit
     ///    both vectors. Errors leave the original transaction unchanged.
     pub fn pad_utxos(

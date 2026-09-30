@@ -662,9 +662,9 @@ owner's nullifier secret.
 
 ## Empty UTXO
 
-Fixed-size circuits pad unused output slots with empty UTXOs, including absent
-change that no real output follows. The domain is `DummyDomain = 1`; every body
-field is zero except the derived [blinding](#output-blinding):
+Fixed-size circuits pad unused output slots with empty UTXOs. The domain is
+`DummyDomain = 1`; every body field is zero except the derived
+[blinding](#output-blinding):
 
 ```
 owner = asset = amount = 0
@@ -672,7 +672,7 @@ utxo_data = ring_data = ring_program_id = None
 ```
 
 `owner = 0` leaves the output permanently unspendable: spending it later requires
-keys whose `owner_hash` is 0, which no one holds. An empty change output still
+keys whose `owner_hash` is 0, which no one holds. An empty UTXO still
 takes its slot's derived `blinding`, so it has a distinct `utxo_hash` and looks
 like a real output, and an owner who knows the seed can reconstruct it. The sender
 ciphertext also stays fixed-size (amounts are fixed-width), so neither the output
@@ -773,14 +773,11 @@ struct TransferRecipientPlaintext {
 
 #### Sender
 
-The sender change bundle encodes the SPL and SOL change outputs, which lead
-the transaction's outputs: the SPL change at slot `0` when present, then the
-SOL change at slot `1` after an SPL change and at slot `0` otherwise. An empty
-change output takes no slot, so the recipients follow the change outputs
-present and the dummies follow every real output (see
-[Slot order](#slot-order)). The reader derives each change output's slot from
-the change amounts present and uses the bundle's seed and `first_nullifier` to
-derive their [blindings](#output-blinding).
+The sender change bundle encodes the SPL and SOL change, which lead the
+outputs in that order. An empty change output takes no slot, so the SOL change
+sits at slot `1` after an SPL change and at slot `0` otherwise. The reader
+derives each change slot from the amounts present and uses the bundle's seed
+and `first_nullifier` to derive their [blindings](#output-blinding).
 
 ```rust
 /// 58 B plaintext for confidential transfers with both `data` fields empty
@@ -851,9 +848,8 @@ struct RecipientSlot {
 #### Output slot mapping
 
 Each output is one [`TransactOutput`](#transact): `utxo_hash`, `owner_tag`, and
-optional `data` ciphertext, in tree-append order: the `c ≤ 2` change outputs
-present (the SPL change before the SOL change), `c + i` recipient `i`, then
-dummies per [Slot order](#slot-order).
+optional `data` ciphertext, in tree-append order (`0..c` the `c ≤ 2` change
+outputs present, SPL before SOL; `c + i` recipient `i`; then dummies).
 
 **Coverage convention** (a default-ring serialization rule, not program-enforced): an
 output with `data = Some` covers itself plus the immediately following `data = None`
@@ -888,7 +884,7 @@ Sizes assume confidential transfers with every `data` field empty (`count = 0`).
 
 ## Plaintext Transfer
 
-The [Transfer](#transfer-2) layout without encryption: `tx_viewing_pk`, `salt`, and the AES-CTR ciphertext wrapper are absent. Output blindings derive from the published `blinding_seed` as in [Output Blinding](#output-blinding): the change outputs present lead, the SPL change before the SOL change, and recipient slot `i` sits at `c + i` for `c` change outputs. The sender bundle and each recipient slot are indexed by their `owner_pubkey`, like the encrypted [Transfer](#transfer-2).
+The [Transfer](#transfer-2) layout without encryption: `tx_viewing_pk`, `salt`, and the AES-CTR ciphertext wrapper are absent. Output blindings derive from the published `blinding_seed` as in [Output Blinding](#output-blinding), at the slots of the [Output slot mapping](#output-slot-mapping). The sender bundle and each recipient slot are indexed by their `owner_pubkey`, like the encrypted [Transfer](#transfer-2).
 
 A plaintext transfer differs from the encrypted transfer only in that amounts and asset are public; both reveal recipients. Payloads are public, so dummy slots hide nothing: only the sender bundle and real recipient outputs carry `data`.
 
@@ -1118,7 +1114,7 @@ regardless of which tree it selected, so the tighter tree governs.
 
 **external_data_hash**
 
-Hash over the public fields of the invoking SPP instruction and the Solana accounts the proof must commit to. As a public input of the SPP proof, it commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). A P256 owner signs it with `private_tx_hash` (the P256 message hash above), so the owner's signature covers the entire transaction. A proof built for one instruction cannot be replayed against another even when every other field matches.
+Hash over the public fields of the invoking SPP instruction and the Solana accounts the proof must commit to. As a public input of the SPP proof, it commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). A P256 owner signs `SHA-256(private_tx_hash || external_data_hash)` (the P256 message hash above), so the owner's signature covers the entire transaction. A proof built for one instruction cannot be replayed against another even when every other field matches.
 
 ```
 external_data_hash := Sha256BE(
@@ -1226,11 +1222,9 @@ private_tx_hash = Poseidon(input_utxo_hash_chain, output_utxo_hash_chain,
 Each chain is a [`NonZeroHashChain`](#hash-chain-4) over one value per slot, in
 slot order: input and output chains use real UTXO hashes and `0` elsewhere; the
 address chain uses address nullifiers and `0` elsewhere. This lets application
-proofs check the addresses they create.
-
-The hash does not depend on padding or on the SPP shape, so a policy or
-third-party circuit can recompute it over its own slot count. SPP, policy, and
-third-party proofs share `private_tx_hash` and its blinding.
+proofs check the addresses they create. Padding does not change the hash, so a
+policy or third-party circuit can recompute it over its own slot count. SPP,
+policy, and third-party proofs share `private_tx_hash` and its blinding.
 
 A secret `private_tx_blinding` prevents observers testing candidate input hashes
 against the published transaction hash (see [Blinding Seed](#blinding-seed)).

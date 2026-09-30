@@ -2,10 +2,10 @@
 //!
 //! # The auditor message must be in `messages` before the SPP proof is generated
 //!
-//! The circuit's public input binds `private_tx_hash`, and the auditor message
-//! that this module mints is folded into the SPP proof's `external_data_hash`.
-//! So the message has to exist before the SPP proof, and `private_tx_hash` is
-//! only taken from that proof.
+//! The circuit's public input includes `private_tx_hash`, and SPP hashes the
+//! auditor message this module creates into `external_data_hash`, which the SPP
+//! proof commits to. The message therefore has to exist before the SPP proof,
+//! and `private_tx_hash` is read from that proof.
 //!
 //! The two steps are therefore separate calls rather than one:
 //!
@@ -146,8 +146,9 @@ impl PendingCustomRingProof {
     /// The public input recomputed from `CustomRingPolicyPublicInput`, the one
     /// implementation the program calls on-chain, so a folded request cannot
     /// drift from what verification recomputes.
-    /// The circuit recomputes `private_tx_hash` over the chains and the
-    /// blinding, a value the SPP proof did not fold cannot prove.
+    /// The circuit recomputes `private_tx_hash` from the chains and the
+    /// blinding, so a hash other than the one the SPP proof published cannot
+    /// be proved.
     pub fn finish(
         self,
         private_tx_hash: CustomRingPrivateTxHash,

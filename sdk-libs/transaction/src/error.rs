@@ -102,10 +102,10 @@ pub enum TransactionError {
     #[error("input slot 0 must be a real input utxo, not padding")]
     DummyInFirstInputSlot,
 
-    #[error("input slot {index} is real but follows padding, padding inputs must come last")]
+    #[error("input slot {index} is real but follows padding; padding inputs must come last")]
     RealInputAfterDummy { index: usize },
 
-    #[error("output slot {index} is real but follows a dummy, dummy outputs must come last")]
+    #[error("output slot {index} is real but follows a dummy; dummy outputs must come last")]
     RealOutputAfterDummy { index: usize },
 
     /// Padding is hashed under a declared input tree. A dummy naming any other

@@ -114,9 +114,9 @@ export function hashChain(values: readonly Bytes32[]): Bytes32 {
 }
 
 /**
- * Folds `Poseidon(h, v)` over the nonzero entries in order. Zero entries are
- * skipped, so padding position does not matter, the first nonzero entry is
- * taken as is, and no nonzero entry gives zero. Mirrors Rust
+ * Folds `Poseidon(h, v)` over the nonzero entries in order, starting from the
+ * first nonzero entry; a chain with no nonzero entry is zero. Zero entries are
+ * skipped, so padding positions do not change the result. Mirrors Rust
  * `create_nonzero_hash_chain_from_slice`.
  */
 export function nonZeroHashChain(values: readonly Bytes32[]): Bytes32 {

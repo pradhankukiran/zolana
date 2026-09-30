@@ -1923,11 +1923,11 @@ fn build_two_tree_transact_ix(
     (transact_ix_data, expected_output_tree.root())
 }
 
-/// One `transact` spending inputs interleaved across two trees: every nullifier
-/// PDA lands under the tree its input names at that tree's first queue sequence
-/// plus its rank among the tree's inputs, each tree queues only its own inputs
-/// and pays its own forester fee, and the event reports the same sequences so
-/// the indexer can rebuild the spend.
+/// One `transact` spending inputs interleaved across two trees. Each nullifier
+/// PDA lands under its input's tree at that tree's first queue sequence plus
+/// the input's rank among the tree's inputs. Each tree queues only its own
+/// inputs and collects its own forester fee, and the event reports the same
+/// sequences so the indexer can rebuild the spend.
 #[test]
 fn transact_spends_two_input_trees_with_a_valid_proof() {
     assert_two_tree_transact(None);

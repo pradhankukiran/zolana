@@ -65,8 +65,8 @@ export type { Shape };
 export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
 
 /**
- * The most leading sender-owned change outputs a transfer has: an SPL change
- * at slot 0, then a SOL change. Recipients follow the change outputs present.
+ * The maximum number of sender-owned change outputs that lead a transfer: an
+ * SPL change, then a SOL change. Recipients follow the change outputs present.
  */
 export const SENDER_SLOT_COUNT = 2;
 
@@ -457,10 +457,10 @@ export interface PrivateTxHashInput {
 }
 
 /**
- * `Poseidon(nz(inputs), nz(outputs), nz(address nullifiers), blinding)` where
- * `nz` folds only the nonzero entries in order, the value a transact proof
- * publishes. The circuit reads one address nullifier per input slot, so a set
- * of any other length is refused.
+ * The value a transact proof publishes: `Poseidon(nz(inputs), nz(outputs),
+ * nz(address nullifiers), blinding)`, where `nz` is `nonZeroHashChain`. The
+ * circuit reads one address nullifier per input slot, so a set of any other
+ * length is refused.
  */
 export function privateTxHash(input: PrivateTxHashInput): Bytes32 {
   const addressChain = privateTxAddressChain(input);
@@ -802,7 +802,7 @@ export class SppProofInputs {
 
   /**
    * The digest the owners sign: `sha256(privateTxHash || externalDataHash)`,
-   * with the external data hash bound to the write cache as the proof
+   * where the external data hash includes the cache write, as the proof
    * publishes it.
    */
   messageHash(): Bytes32 {
@@ -863,7 +863,7 @@ export interface PreparedTransfer {
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
   proofOutputs(): readonly ProofOutputUtxo[];
-  /** Places the velocity record after the real inputs and last among the outputs, Rust `RecordSlots::append`. */
+  /** Mirrors Rust `RecordSlots::append`: places the velocity record after the real inputs and last among the outputs. */
   withAppendedSlot(
     extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
   ): PreparedTransfer;

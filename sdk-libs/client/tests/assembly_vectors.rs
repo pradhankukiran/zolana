@@ -533,7 +533,7 @@ fn transfer_padding_output_is_not_a_dummy_so_both_output_vectors_carry_its_real_
         expected_output_slots(&OUTPUT_IS_DUMMY, &OUTPUT_HASHES)
     );
 
-    // Slot 2 is the padding output. It carries a real commitment in both
+    // Slot 2 is the padding output. Its real commitment appears in both
     // vectors, and the vectors coincide only because of that.
     assert_eq!(OUTPUT_IS_DUMMY.last(), Some(&0));
     assert_eq!(

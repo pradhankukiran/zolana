@@ -683,9 +683,8 @@ fn case_b_message_hash() {
 ///
 /// A zero-amount OUTPUT owned by the sender contributes its real commitment:
 /// `SppProofOutputUtxo::is_dummy()` (owner is `None`) is false for it and
-/// `message_hash` hashes the commitment it actually publishes. Zeroing it -- the
-/// obvious "symmetry" fix -- changes the signed message without changing a
-/// single visible field.
+/// `message_hash` hashes the commitment it actually publishes. Zeroing it for
+/// symmetry would change the signed message without changing a visible field.
 #[test]
 fn a_padding_output_contributes_its_real_hash_while_a_dummy_input_contributes_zero() {
     for fixture in [case_a(), case_b()] {

@@ -309,7 +309,7 @@ impl<'a> CustomRingWitnessInput<'a> {
             .all(|(total, limit)| *total <= u128::from(*limit)))
     }
 
-    /// A windowed ring carries the record as its last real input and its last output.
+    /// A windowed ring places the record at its last real input and its last output.
     fn has_record(&self) -> bool {
         self.velocity.window_slots != 0
     }

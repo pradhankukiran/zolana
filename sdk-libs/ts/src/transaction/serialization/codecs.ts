@@ -508,7 +508,7 @@ export function decodeAnonymousSender(bytes: Uint8Array): AnonymousSenderPlainte
  * Rust `AnonymousTransferSenderPlaintext::into_utxos`. The bundle's
  * `blindingSeed` is the derived output seed; the change slots' blindings
  * follow from it and the transaction's first nullifier. A zero amount marks a
- * change output as absent, the SPL change sits at slot 0 and the SOL change
+ * change output as absent. The SPL change sits at slot 0, and the SOL change
  * at slot 1 after an SPL change, else at slot 0.
  */
 export function anonymousSenderUtxos(
@@ -625,11 +625,11 @@ export function decodePlaintextTransfer(
 }
 
 /**
- * Rust `TransferPlaintextUtxos::into_utxos`. The sender's present change
- * outputs lead, the SPL change before the SOL change, and the recipients
- * follow them; the position, with the disclosed output seed and the
- * transaction's first nullifier, derives each blinding, so it is also the
- * position the published output slot must sit at.
+ * Rust `TransferPlaintextUtxos::into_utxos`. The sender's change outputs
+ * present lead, SPL before SOL, and the recipients follow them. Each blinding
+ * derives from the output's slot, the disclosed output seed and the
+ * transaction's first nullifier, so each output must be published at that
+ * slot.
  */
 export function plaintextTransferUtxos(
   value: TransferPlaintextUtxos,

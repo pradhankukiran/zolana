@@ -425,18 +425,14 @@ pub(crate) fn assemble_inputs(
     })
 }
 
-/// Convert the already-padded outputs into circuit witness fields. A dummy output
-/// (`owner_hash == 0`: empty change or tail padding) still puts its real hash in the
-/// public `output_hashes` but contributes `0` to the private-tx hash chain.
 /// The private transaction hash, from the vectors one assembly pass produced.
 ///
-/// Every rail folds the same chains and blinding in the same order, and the
-/// two hash vectors are the ones `assemble_inputs` and `assemble_outputs` emit
-/// -- not a second selection of them. A rail that picked `output_hashes` where
-/// this picks `private_tx_output_hashes` would publish a hash the circuit does
-/// not agree with, and nothing would report it until the proof failed to
-/// verify. One construction site is what stops the two vectors being confused
-/// rail by rail.
+/// Every rail hashes the same chains and blinding in the same order, from the
+/// vectors `assemble_inputs` and `assemble_outputs` return. A rail that used
+/// `output_hashes` where this uses `private_tx_output_hashes` would publish a
+/// hash the circuit rejects, and nothing would report it until the proof
+/// failed to verify. This single construction site keeps every rail on the
+/// same vectors.
 pub(crate) fn private_tx_hash(
     inputs: &AssembledInputs,
     outputs: &AssembledOutputs,
@@ -450,6 +446,9 @@ pub(crate) fn private_tx_hash(
     .hash()?)
 }
 
+/// Convert the already-padded outputs into circuit witness fields. A dummy output
+/// (`owner_hash == 0`) still puts its real hash in the public `output_hashes` but
+/// contributes `0` to the private-tx hash chain.
 pub(crate) fn assemble_outputs(
     outputs: &[SppProofOutputUtxo],
     output_tree_id: u16,

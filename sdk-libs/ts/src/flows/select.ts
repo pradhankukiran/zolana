@@ -127,8 +127,8 @@ export function selectUtxos(
 
 /**
  * The selected entries are reordered into per-tree runs, keeping the amount
- * order inside each. A policy that infers the trees refuses more runs than it
- * admits.
+ * order inside each. A policy that infers the trees refuses more trees than
+ * its `maxTrees`.
  */
 function grouped(
   entries: readonly WalletUtxo[],

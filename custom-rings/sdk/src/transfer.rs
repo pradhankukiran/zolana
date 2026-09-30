@@ -730,8 +730,8 @@ impl<'a> CustomRingTransfer<'a> {
         .encrypt()?;
         messages.push(auditor_message.to_message_data(&auditor_pk));
         proof_inputs.external_data.messages = messages;
-        // RING_TRANSACT is folded into external_data_hash, so it must be bound
-        // before anything hashes external data.
+        // external_data_hash includes RING_TRANSACT, so set it before anything
+        // hashes the external data.
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
 
         Ok(StagedTransfer {
@@ -2858,7 +2858,7 @@ mod tests {
         ));
     }
 
-    /// Input tree ids after the record and one padding slot join the money inputs.
+    /// Input tree ids once the record and one padding slot follow the spent inputs.
     fn record_input_trees(
         spend_trees: &[u16],
         record_tree: u16,

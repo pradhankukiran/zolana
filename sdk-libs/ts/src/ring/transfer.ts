@@ -632,7 +632,7 @@ async function buildRingWithdrawal(
   );
 }
 
-/** Mirrors Rust `CustomRingTransfer::prove`, the auditor message enters the external data before the SPP proof binds it. */
+/** Mirrors Rust `CustomRingTransfer::prove`: the auditor message enters the external data before the SPP proof commits to it. */
 export async function proveCustomRingTransfer(
   input: CustomRingTransferParams,
   context?: RequestContext,
@@ -867,7 +867,7 @@ async function proveRingTransferStatement(
             { outputTree },
             context,
           );
-    // The audit statement rehashes the auditor message SPP already bound in the external data hash.
+    // The audit statement rehashes the auditor message SPP already hashed into the external data hash.
     const message = parseAuditorMessage(encrypted.auditorMessage.data);
     const common = {
       data,
