@@ -165,6 +165,65 @@ func TestResolveFetchesParallelProofsAndBindsDummyRoot(t *testing.T) {
 	}
 }
 
+// Compact padding publishes nullifier 0, which has no non-inclusion proof: the
+// resolver must skip it and fill its slot with the zero witness.
+func TestResolveSkipsCompactPadding(t *testing.T) {
+	request, state, nullifier := fixture(t)
+	var prepared transfer.TransferParametersJSON
+	if err := json.Unmarshal(request.Prepared, &prepared); err != nil {
+		t.Fatal(err)
+	}
+	prepared.Inputs[1].Nullifier = "0x0"
+	request.Prepared = encoded(t, prepared)
+	nullifier.Proofs = nullifier.Proofs[:1]
+	var fetched []Hash
+	resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			Method string      `json:"method"`
+			Params proofParams `json:"params"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		var result any = state
+		if body.Method == "getNonInclusionProofs" {
+			fetched = body.Params.Leaves
+			result = nullifier
+		}
+		data, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": body.Method, "result": result})
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(bytes.NewReader(data))}, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	resolved, err := resolver.Resolve(ctx, encoded(t, request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fetched) != 1 {
+		t.Fatalf("fetched %d nullifier proofs, want only the real input's", len(fetched))
+	}
+	var value transfer.TransferParameters
+	if err := json.Unmarshal(resolved.Payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	compact := value.Inputs[1]
+	if len(compact.StatePathElements) != 32 || len(compact.NullifierLowPathElements) != 40 {
+		t.Fatal("compact padding paths are not filled")
+	}
+	for _, element := range append(append([]*big.Int{}, compact.StatePathElements...), compact.NullifierLowPathElements...) {
+		if element.Sign() != 0 {
+			t.Fatal("compact padding paths are not zero")
+		}
+	}
+}
+
 func TestResolveRejectsUnboundAndStaleProofs(t *testing.T) {
 	for _, corruption := range []string{"leaf", "path", "tree", "root", "count", "stale"} {
 		t.Run(corruption, func(t *testing.T) {

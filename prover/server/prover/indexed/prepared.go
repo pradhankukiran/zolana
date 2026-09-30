@@ -144,6 +144,15 @@ func decodePrepared(request Request) (*preparedProof, error) {
 			return nil, err
 		}
 	}
+	// Compact padding (a dummy that publishes nullifier 0) is neither fetched
+	// nor proven: it keeps the zero witness the circuit ignores for that slot.
+	for index := range prepared.inputs {
+		input := &prepared.inputs[index]
+		if input.dummy && input.nullifier.Sign() == 0 {
+			input.disabled = true
+			input.apply(nil, nullifierProof{Path: make([]Hash, 40)})
+		}
+	}
 	return &prepared, nil
 }
 
