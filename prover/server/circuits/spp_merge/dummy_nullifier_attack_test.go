@@ -24,7 +24,8 @@ import (
 // derived deterministically in-circuit via
 // MergeDummyNullifier(nullifierSecret, firstNullifier, slotIndex) and bound
 // to the published signal (shared/inputs.go), and distinctness covers
-// real and dummy slots alike.
+// real and dummy slots alike. A dummy may instead publish 0 (compact padding),
+// which SPP never queues; see compact_test.go.
 
 // refreshDefaultPublicInputHash recomputes the default-rail public input hash
 // from the fixture's current public columns, so a mutated witness fails only on

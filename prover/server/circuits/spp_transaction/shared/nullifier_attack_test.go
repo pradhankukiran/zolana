@@ -28,7 +28,9 @@ import (
 // the in-circuit derived nullifier must equal the public signal, its low-leaf
 // Merkle proof must verify against the public root, and
 // NullifierLowValue < Nullifier < NullifierNextValue must hold over canonical
-// field values. Distinctness across slots is unconditional.
+// field values. Distinctness covers every nonzero nullifier. The one exception
+// is compact padding: a dummy past slot 0 that publishes 0, which SPP never
+// queues (compact_test.go).
 
 // refreshNullifierAttackHashes keeps these fixtures' real outputs and transaction
 // hashes consistent with a changed first nullifier. inputHashes contains zero
@@ -66,11 +68,9 @@ func TestDummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// TestDummyInputRejectsZeroNullifier (INV-TRANSACT-31): nullifier 0 can never enter the
-// indexed nullifier tree -- strict ordering needs NullifierLowValue < 0, which
-// no canonical field value satisfies -- so queuing it would brick the pool.
-// The derived-nullifier binding also rejects it (a Poseidon-derived nullifier
-// is not 0). Pre-PR164 a padding slot could publish 0 freely.
+// TestDummyInputRejectsZeroNullifier (INV-TRANSACT-31): slot 0's nullifier seeds
+// the output blindings, so it can never be compact padding. A zero there is
+// rejected even on a dummy; later dummy slots may publish 0 (compact_test.go).
 func TestDummyInputRejectsZeroNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
