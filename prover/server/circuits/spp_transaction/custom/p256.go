@@ -184,16 +184,9 @@ func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 	if err := shared.AssertMaskedDummyOutputTags(
 		api,
 		tx.Outputs,
-		c.Public.PublishedOutputOwnerPkHashes,
-		dummyIdentities,
-	); err != nil {
-		return err
-	}
-
-	if err := shared.AssertCompactOutputTagsZero(
-		api,
 		tx.OutputIsCompact,
 		c.Public.PublishedOutputOwnerPkHashes,
+		dummyIdentities,
 	); err != nil {
 		return err
 	}

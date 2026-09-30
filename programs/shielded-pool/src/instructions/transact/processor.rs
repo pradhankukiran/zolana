@@ -32,7 +32,9 @@ use super::{
 use crate::instructions::{
     event::emit_event,
     settlement::Settlement,
-    shared::{check_field_element, check_field_elements, check_not_expired},
+    shared::{
+        check_field_element, check_field_elements, check_nonzero_field_elements, check_not_expired,
+    },
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
 
@@ -198,20 +200,14 @@ pub fn validate_circuit_type(
         "output utxo hash",
         ShieldedPoolError::NonCanonicalOutputUtxoHash,
     )?;
-    if ix
-        .inputs
-        .iter()
-        .any(|input| input.nullifier_hash == [0u8; 32])
-    {
-        return Err(ShieldedPoolError::ZeroInputNullifier.into());
-    }
-    if ix
-        .outputs
-        .iter()
-        .any(|output| *output.utxo_hash == [0u8; 32])
-    {
-        return Err(ShieldedPoolError::ZeroOutputUtxoHash.into());
-    }
+    check_nonzero_field_elements(
+        ix.inputs.iter().map(|input| &input.nullifier_hash),
+        ShieldedPoolError::ZeroInputNullifier,
+    )?;
+    check_nonzero_field_elements(
+        ix.outputs.iter().map(|output| output.utxo_hash),
+        ShieldedPoolError::ZeroOutputUtxoHash,
+    )?;
     check_field_element(
         ix.private_tx_hash,
         "private tx hash",

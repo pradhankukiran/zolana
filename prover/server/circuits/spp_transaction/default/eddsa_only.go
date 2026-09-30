@@ -166,13 +166,5 @@ func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 		return err
 	}
 
-	if err := shared.AssertCompactOutputTagsZero(
-		api,
-		tx.OutputIsCompact,
-		c.Public.OutputOwnerPkHashes,
-	); err != nil {
-		return err
-	}
-
 	return tx.Constrain(api, inputOwners, outputPubkeyIsSigner)
 }

@@ -17,8 +17,8 @@ use zolana_interface::instruction::instruction_data::{
     },
     merge_ring::{MergeRingIxData, MergeRingIxDataRef},
     merge_transact::{
-        MergeCircuit, MergeProof, MergeTransactIxData, MergeTransactIxDataRef,
-        MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
+        MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_DEFAULT_INPUT_COUNT,
+        MERGE_SUPPORTED_INPUT_COUNTS,
     },
     transact::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
@@ -180,7 +180,6 @@ mod strategies {
                         output_utxo_hash,
                         eddsa_owner,
                         private_tx_hash,
-                        circuit: MergeCircuit::Inputs8,
                         nullifiers,
                         utxo_tree_root_index,
                         nullifier_tree_root_index,

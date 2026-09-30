@@ -1,41 +1,11 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-pub const MERGE_SUPPORTED_INPUT_COUNTS: [usize; 2] = [
-    MergeCircuit::Inputs8.num_inputs(),
-    MergeCircuit::Inputs36.num_inputs(),
-];
+pub const MERGE_SUPPORTED_INPUT_COUNTS: [usize; 2] = [8, 36];
 
-pub const MAX_MERGE_INPUTS: usize = MergeCircuit::Inputs36.num_inputs();
+pub const MAX_MERGE_INPUTS: usize = 36;
 
-pub const MERGE_DEFAULT_INPUT_COUNT: usize = MergeCircuit::Inputs8.num_inputs();
-
-/// The merge circuit a proof is verified against, by input width. The
-/// instruction carries only the leading nullifiers; the remaining slots up to
-/// the width are compact padding with nullifier 0.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-#[wincode(tag_encoding = "u8")]
-pub enum MergeCircuit {
-    Inputs8,
-    Inputs36,
-}
-
-impl MergeCircuit {
-    pub const fn num_inputs(self) -> usize {
-        match self {
-            Self::Inputs8 => 8,
-            Self::Inputs36 => 36,
-        }
-    }
-
-    pub fn from_num_inputs(num_inputs: usize) -> Option<Self> {
-        match num_inputs {
-            8 => Some(Self::Inputs8),
-            36 => Some(Self::Inputs36),
-            _ => None,
-        }
-    }
-}
+pub const MERGE_DEFAULT_INPUT_COUNT: usize = 8;
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
 /// 192 bytes. `a` and `c` are compressed G1 points (32 bytes each), `b` is the
@@ -81,7 +51,6 @@ pub struct MergeTransactIxData {
     /// the registry account's ed25519 `owner` instead of its P256 `owner_p256`.
     pub eddsa_owner: bool,
     pub private_tx_hash: [u8; 32],
-    pub circuit: MergeCircuit,
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
     pub utxo_tree_root_index: u16,
@@ -121,7 +90,6 @@ pub struct MergeTransactIxDataRef<'a> {
     pub output_utxo_hash: &'a [u8; 32],
     pub eddsa_owner: bool,
     pub private_tx_hash: &'a [u8; 32],
-    pub circuit: MergeCircuit,
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
     pub utxo_tree_root_index: u16,
@@ -136,12 +104,26 @@ impl<'a> MergeTransactIxDataRef<'a> {
         Ok(parsed)
     }
 
+    /// The instruction carries only the leading nullifiers; the circuit
+    /// [`merge_circuit_width`] selects pads the rest with compact padding.
     pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
-        if self.nullifiers.is_empty() || self.nullifiers.len() > self.circuit.num_inputs() {
+        if merge_circuit_width(self.nullifiers.len()).is_none() {
             return Err(wincode::ReadError::Custom("unsupported merge shape"));
         }
         Ok(())
     }
+}
+
+/// The narrowest supported merge circuit that holds `input_count` nullifiers,
+/// or `None` for zero or more than [`MAX_MERGE_INPUTS`]. Slots past the sent
+/// nullifiers are compact padding with nullifier 0.
+pub fn merge_circuit_width(input_count: usize) -> Option<usize> {
+    if input_count == 0 {
+        return None;
+    }
+    MERGE_SUPPORTED_INPUT_COUNTS
+        .into_iter()
+        .find(|width| input_count <= *width)
 }
 
 /// `external_data_hash` public input for the merge instructions. Domain-separated
@@ -186,7 +168,6 @@ mod tests {
                 c: [3u8; 32],
             },
             output_utxo_hash: [9u8; 32],
-            circuit: MergeCircuit::Inputs8,
             nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT as u8)
                 .map(|i| [i; 32])
                 .collect(),

@@ -27,7 +27,8 @@ use crate::instructions::{
     event::emit_event,
     nullifier_pda::{create_nullifier_pdas, InputTreeResult},
     shared::{
-        bool_field, check_field_element, check_field_elements, check_not_expired, tree_error,
+        bool_field, check_field_element, check_field_elements, check_nonzero_field_elements,
+        check_not_expired, tree_error,
     },
 };
 
@@ -44,14 +45,7 @@ pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> Progra
         "input nullifier",
         ShieldedPoolError::NonCanonicalInputNullifier,
     )?;
-    // Zero marks compact padding, which the instruction never carries.
-    if ix
-        .nullifiers
-        .iter()
-        .any(|nullifier| *nullifier == [0u8; 32])
-    {
-        return Err(ShieldedPoolError::ZeroInputNullifier.into());
-    }
+    check_nonzero_field_elements(ix.nullifiers.iter(), ShieldedPoolError::ZeroInputNullifier)?;
     check_field_element(
         ix.output_utxo_hash,
         "output utxo hash",

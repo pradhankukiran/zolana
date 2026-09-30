@@ -161,16 +161,9 @@ func (c *CustomRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	if err := shared.AssertMaskedDummyOutputTags(
 		api,
 		tx.Outputs,
-		c.Public.PublishedOutputOwnerPkHashes,
-		authorized.WithoutPayer(),
-	); err != nil {
-		return err
-	}
-
-	if err := shared.AssertCompactOutputTagsZero(
-		api,
 		tx.OutputIsCompact,
 		c.Public.PublishedOutputOwnerPkHashes,
+		authorized.WithoutPayer(),
 	); err != nil {
 		return err
 	}
