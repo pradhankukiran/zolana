@@ -114,8 +114,8 @@ func TestPublicInputHashInsertsPreimageAfterPrivateTxHash(t *testing.T) {
 	}
 
 	fields := []*big.Int{
-		mustHashChain4(t, inputs.Nullifiers),
-		mustHashChain4(t, inputs.OutputUtxoHashes),
+		mustRightHashChain4(t, inputs.Nullifiers),
+		mustRightHashChain4(t, inputs.OutputUtxoHashes),
 		mustTreeSlotsHashChain(t, inputs.TreeSlots),
 		inputs.OutputTreeID,
 		inputs.PrivateTxHash,
