@@ -23,10 +23,10 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
   "custom_ring_policy.key": "1ebc92edebf9f7e6e4c53194a8035e21b6785bee0e8c4e2f7422b1e44d1a72a1",
   "custom_ring_register_key.key":
     "926bc02fe4d70f3d8163e190a572be82f8a0506e4ce734525fd3f92cf40c3357",
-  "merge_36_1.key": "dfa17449cc5a15d155ff788523bdb90d107d1bbb8a3ec2afccf6604aa96c76aa",
-  "merge_8_1.key": "b82548555e44e5e825210feef0ac5951095c7827e95d6ab9e356223e9987d6cd",
-  "merge_ring_36_1.key": "b292090e3e190c2cae8333fc5dabaa2c0f276e774da02217ee2aed5dfe99ddd8",
-  "merge_ring_8_1.key": "6f9b09a1ca522c4ca89c75df569695b8204f4a5c08f4ff387721431986af120a",
+  "merge_36_1.key": "c05dc613ce883772e1c05647372d3e6c3c4b625520c70c99f0ebd2f96b032566",
+  "merge_8_1.key": "a07f3162ea07718f682107fb471049401b0f61bc19d2f54ba3753f631e9530db",
+  "merge_ring_36_1.key": "568950c44c8377ce78c5e03e384ae420218e6987cf9e3aba184017cbc0ac0e29",
+  "merge_ring_8_1.key": "599ea8df030a25d60a5f6249bafddd4d592cb2c3684aeb8b0e7ced3d213d3fa2",
   "transfer_confidential_1_1.key":
     "3f7f1ad4afc1d8a8172eb04ee56493be8a6a05f6d89c212ccbc9d42c799de994",
   "transfer_confidential_1_2.key":

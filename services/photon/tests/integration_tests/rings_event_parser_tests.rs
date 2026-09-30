@@ -2248,6 +2248,7 @@ fn merge_transaction_info() -> TransactionInfo {
         proof: MergeProof::zeroed(),
         output_utxo_hash: [0x66; 32],
         eddsa_owner: true,
+        private_tx_hash: [0; 32],
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])
             .collect(),

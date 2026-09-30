@@ -48,13 +48,16 @@ func RightHashChain(api frontend.API, inputs []frontend.Variable) frontend.Varia
 	return h
 }
 
+// NonZeroHashChainGadget is HashChainGadget over the nonzero inputs only, or 0
+// when there are none. Inputs that are the constant 0 at compile time add no
+// constraints.
 type NonZeroHashChainGadget struct {
 	Inputs []frontend.Variable
 }
 
 func (g NonZeroHashChainGadget) DefineGadget(api frontend.API) interface{} {
-	h := g.Inputs[0]
-	for _, input := range g.Inputs[1:] {
+	h := frontend.Variable(0)
+	for _, input := range g.Inputs {
 		if isConstantZero(api, input) {
 			continue
 		}

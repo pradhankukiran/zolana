@@ -83,6 +83,7 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     inputs,
     outputTreeId: field("outputTreeId"),
     externalDataHash: field("externalDataHash"),
+    privateTxHash: field("privateTxHash"),
     ringProgramId: field("ringProgramId"),
   };
   const minContextSlot = checkedContextSlot(request["minContextSlot"]);
@@ -126,7 +127,6 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
           circuit,
           payload: {
             ...common,
-            privateTxHash: field("privateTxHash"),
             outputs: requestDecoder.list(payload["outputs"], "outputs").map(decodeOutput),
             blindingSeed: field("blindingSeed"),
             publicAssets: fields("publicAssets"),
@@ -314,7 +314,7 @@ function checkStatement(inputs: IndexedProofInputs): void {
     inputs.trees.length > 2 ||
     inputs.lookups.length !== inputs.payload.inputs.length ||
     inputs.publicInputs.length !==
-      (inputs.circuit === "merge" ? 7 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
+      (inputs.circuit === "merge" ? 8 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
   )
     throw invalid();
   if (inputs.circuit === "merge") {

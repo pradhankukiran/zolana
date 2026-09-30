@@ -9,8 +9,13 @@ import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import { treeAddress, ringAuthAddress, ringCoSignerAddress } from "../src/interface/pda/index.js";
 import type { Address, Bytes32, Bytes128 } from "../src/interface/types.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
-import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import {
+  mergeDummyNullifier,
+  mergeOutputBlinding,
+  mergePrivateTxBlinding,
+} from "../src/keypair/merge/index.js";
 import { Merge, PreparedMerge } from "../src/transaction/instructions/builders.js";
+import { privateTxHash } from "../src/transaction/instructions/transact.js";
 import { Data } from "../src/transaction/data.js";
 import { Utxo, ProofInputUtxo } from "../src/transaction/utxo.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
@@ -56,6 +61,7 @@ function merge(inputs: readonly ProofInputUtxo[], outputTreeId = 7): Merge {
       outputTreeId,
       ring: { programId: RING },
       outputBlinding: mergeOutputBlinding(key, first.nullifier()),
+      privateTxBlinding: mergePrivateTxBlinding(key, first.nullifier()),
       dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
         mergeDummyNullifier(key, first.nullifier(), slot),
       ),
@@ -328,6 +334,26 @@ describe("ring merge", () => {
     expect(prepared.output.ringProgramId).toBe(RING);
     expect(prepared.output.ownerAddress?.toBytes()).toEqual(owner.shieldedAddress().toBytes());
     expect(prepared.outputTreeId).toBe(7);
+  });
+
+  it.each([2, 9, 36])("zeroes padding in the private tx hash of a %i-input merge", (count) => {
+    const inputs = Array.from({ length: count }, (_, index) => input(BigInt(index + 1)));
+    const prepared = merge(inputs).prepare();
+    const assembly = assembleMergeWithProofs(
+      prepared,
+      inputs.map(spendProof),
+      treeAddress(7),
+      prepared.dummyNullifiers().map(nonInclusion),
+    );
+    expect(assembly.privateTxHash).toEqual(
+      privateTxHash({
+        inputHashes: prepared.inputs.map((spend) =>
+          spend.isDummy() ? (new Uint8Array(32) as Bytes32) : spend.hash(),
+        ),
+        outputHashes: [assembly.outputHash],
+        blinding: prepared.privateTxBlinding(),
+      }),
+    );
   });
 
   it("binds a separate output tree and sends a ring merge proof request", () => {

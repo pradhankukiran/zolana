@@ -60,6 +60,7 @@ describe("merge tree guards", () => {
           nullifierPublicKey:
             kind === "nullifier" ? other.nullifierPublicKey() : prepared.nullifierPublicKey,
           dummyNullifiers: prepared.dummyNullifiers(),
+          privateTxBlinding: prepared.privateTxBlinding(),
           outputTreeId: prepared.outputTreeId,
         });
         expect(() => assembleMergeWithProofs(inconsistent, [], submitTree)).toThrow(

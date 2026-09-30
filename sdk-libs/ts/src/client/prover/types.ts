@@ -106,6 +106,7 @@ export interface MergeInputs {
   /** Present once the `ProofAuthority` has completed the inputs. */
   readonly userNullifierSecret?: Field;
   readonly externalDataHash: Field;
+  readonly privateTxHash: Field;
   readonly allowDummyInputs: Field;
   readonly publicInputHash: Field;
   readonly outputRingDataHash: Field;

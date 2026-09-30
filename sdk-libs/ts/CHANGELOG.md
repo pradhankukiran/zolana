@@ -7,7 +7,7 @@ client's indexer round trip before each proof, and the client route stays
 available. Merges take up to 36 notes in one transaction, and wallet sync
 recovers the output of such a merge. The private transaction hash ignores
 padding and no longer covers the external data, which P-256 owners now sign
-alongside it, and merges no longer publish one.
+alongside it.
 
 Breaking
 
@@ -41,16 +41,6 @@ Breaking
   takes a zero `addressChain` for a transfer that creates no address → drop
   `externalDataHash` from hand-built hash inputs and policy requests, sign
   again, and prove against the program and prover of this release.
-- `MergeTransactInstructionData` and `MergeInputs` drop `privateTxHash`, so
-  `getMergeTransactInstructionAsync` data is 32 bytes shorter and the merge
-  prover request no longer carries it → remove the field from hand-built merge
-  data and prover inputs, and prove merges against the program and prover of
-  this release.
-- `mergePrivateTxBlinding`, `PreparedMerge.privateTxBlinding()`, the
-  `privateTxBlinding` field of the `Merge` and `PreparedMerge` constructors and
-  the `mergePrivateTxBlinding` `DeriveRequest` kind are removed because a merge
-  has no private transaction hash → stop deriving and passing the value, and
-  drop the kind from `ShieldedKeys` implementations.
 - `PreparedTransfer.withInputTreeLast`, `TRANSACTION_INPUTS_NOT_GROUPED_BY_TREE`,
   `CLIENT_INPUTS_NOT_GROUPED_BY_TREE` and
   `ShieldedPoolError.InputsNotGroupedByTree` are removed, leaving code 7063

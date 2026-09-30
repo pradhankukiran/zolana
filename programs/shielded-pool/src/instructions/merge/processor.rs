@@ -49,6 +49,12 @@ pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> Progra
         "output utxo hash",
         None,
         ShieldedPoolError::NonCanonicalOutputUtxoHash,
+    )?;
+    check_field_element(
+        ix.private_tx_hash,
+        "private tx hash",
+        None,
+        ShieldedPoolError::NonCanonicalPrivateTxHash,
     )
 }
 

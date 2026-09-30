@@ -14,6 +14,7 @@ import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { PreparedMerge } from "../../transaction/instructions/builders.js";
+import { privateTxHash as computePrivateTxHash } from "../../transaction/instructions/transact.js";
 
 import { CACHE_CAPACITY } from "../../interface/state.js";
 import type {
@@ -51,6 +52,7 @@ export interface MergeAssembly {
   readonly nullifiers: readonly Bytes32[];
   readonly utxoTreeRootIndex: number;
   readonly nullifierTreeRootIndex: number;
+  readonly privateTxHash: Bytes32;
   readonly publicInputHash: Bytes32;
   /// Recomputed on-chain from the instruction; surfaced so the caller need not
   /// re-derive it.
@@ -280,6 +282,9 @@ export function prepareMerge(
         : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
     return prepareInput(input, { owner, treeSlot: 0, nullifier });
   });
+  const inputHashes = commitments.map(
+    (commitment) => commitment ?? (new Uint8Array(32) as Bytes32),
+  );
   const nullifiers = inputs.map((input) =>
     checkedBytes(bigintToBytes(input.nullifier, "nullifier"), 32, "nullifier"),
   );
@@ -295,6 +300,17 @@ export function prepareMerge(
     outputUtxoHash: outputHash,
     ...(cache === undefined ? {} : { cache }),
   });
+  // Merge has no blinding seed: the owner's nullifier secret takes its place
+  // in the private transaction blinding, so a reader holding the secret
+  // recovers the output without any disclosed value.
+  const firstNullifier = nullifiers[0];
+  if (firstNullifier === undefined) throw new ClientError("CLIENT_NO_INPUTS");
+  const privateTxBlinding = prepared.privateTxBlinding();
+  const privateTxHash = computePrivateTxHash({
+    inputHashes,
+    outputHashes: [outputHash],
+    blinding: privateTxBlinding,
+  });
   const eddsaOwner = prepared.signingPublicKey.signatureType() === "ed25519";
   const ownerPublicKeyHash = bytesField(
     prepared.signingPublicKey.ownerProofInputHash(),
@@ -305,6 +321,7 @@ export function prepareMerge(
     hashChain4(nullifiers.map(bytesToBigInt)),
     bytesToBigInt(outputHash),
     outputTreeIdField,
+    bytesToBigInt(privateTxHash),
     bytesToBigInt(externalDataHash),
     1n,
     ...(prepared.output.ringProgramId === undefined
@@ -320,6 +337,7 @@ export function prepareMerge(
       bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
     ),
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
+    privateTxHash: asField(bytesToBigInt(privateTxHash)),
     allowDummyInputs: asField(1n),
     outputRingDataHash: output.circuit.ringDataHash,
     ringProgramId: output.circuit.ringProgramId,
@@ -353,6 +371,7 @@ export function prepareMerge(
           proof: copyMergeProof(proof),
           outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
           eddsaOwner,
+          privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
           nullifiers: Object.freeze(
             nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
           ),
@@ -373,6 +392,7 @@ export function prepareMerge(
         ),
         utxoTreeRootIndex,
         nullifierTreeRootIndex,
+        privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
         publicInputHash,
         externalDataHash,
         eddsaOwner,

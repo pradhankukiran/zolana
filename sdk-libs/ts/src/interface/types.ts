@@ -290,6 +290,7 @@ export interface MergeTransactInstructionData {
   }>;
   readonly outputUtxoHash: Bytes32;
   readonly eddsaOwner: boolean;
+  readonly privateTxHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];
   readonly utxoTreeRootIndex: number;
   readonly nullifierTreeRootIndex: number;

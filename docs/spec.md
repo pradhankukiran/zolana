@@ -1209,7 +1209,10 @@ tree; SPP's value is authoritative at verification.
 **Slot order.** Input slots hold spent UTXOs and addresses, in any order,
 followed only by padding. Output slots hold real outputs followed only by dummy
 outputs. Real outputs therefore keep the same slot index, and the same
-[blinding](#output-blinding), whatever the proof shape.
+[blinding](#output-blinding), whatever the proof shape. Application proofs can
+map [private transaction hash](#private-transaction-hash) entries to SPP slots:
+the k-th real output is output slot k, and the k-th spent UTXO is input slot k
+when no address precedes it.
 
 <a id="private-transaction-hash"></a>
 **Private transaction hash.**
@@ -1337,7 +1340,7 @@ The proof is a 192-byte vanilla Groth16 `a || b || c` (`a`, `c` compressed G1, `
 
 **Public Inputs**
 
-The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over the 8 elements below: a shared 6-element prefix followed by the two-element variant tail (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
+The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over the 9 elements below: a shared 7-element prefix followed by the two-element variant tail. The prefix ends on a complete HashChain4 group, so extending its hash with the tail is equivalent to hashing the full chain (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
 
 | Element | Source |
 | --- | --- |
@@ -1345,6 +1348,7 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | `output_utxo_hash` | instruction data |
 | `tree_slot_chain` | the [Tree Slot Chain](#tree-slot-chain), resolved from `input_tree` as for `transact` |
 | `output_tree_id` | raw `u16` id of `output_tree`, hashed into the output `utxo_hash` |
+| `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
 | `external_data_hash` | instruction data, recomputed by SPP from the instruction and matched against this public input |
 | `allow_dummy_inputs` | derived by SPP from `input_tree` as in [Input slots](#input-slots); when false every slot must be real |
 | variant tail — default merge: `owner_proof_input_hash(user_signing_pk)`, `user_nullifier_pk` | registry signing identity (`owner` when `eddsa_owner` is true, otherwise `owner_p256`) and registered nullifier public key; must equal the witnessed signing identity and nullifier key |
@@ -1386,13 +1390,14 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | Input cleanliness — `data_hash` | for each non-dummy input: `data_hash = 0`. UTXOs with `utxo_data` set are not mergeable. Applies to both rails. |
 | Input/output ring fields | for `merge_transact`: real inputs and the output carry `ring_program_id = 0` and `ring_data_hash = 0`. For `merge_ring`: `ring_program_id != 0`, every real input shares it with the CPI caller, and the output's `ring_data_hash` equals the instruction's `output_ring_data_hash`. |
 | Deterministic output | the output blinding is `merge_output_blinding(nullifier_secret, first_nullifier)`; the recomputed output hash, with `output_tree_id`, equals the public `output_utxo_hash`, with `owner = userOwnerHash` and `data_hash = 0`. |
+| Private transaction hash | Matches the [shared derivation](#private-transaction-hash), with zero address slots and `private_tx_blinding = Poseidon("TXPB", first_nullifier, nullifier_secret)`. |
 | Owner binding (default rail) | `user_signing_pk_hash == owner_pk_hash`, and the witnessed nullifier public key is included in the public-input hash, so the proof verifies only against both keys from the registry record. |
 
 **Circuit shape**
 
 | Circuit | Use | Shape |
 | --- | --- | --- |
-| 8 in 1 out (merge) | Reconsolidate fragmented balance | Exactly 8 input slots of the same owner/asset, 1 combined output. Fewer-than-8 real inputs pad with dummy slots (ownership, inclusion, and nullifier derivation skipped; the deterministic dummy nullifier keeps padding indistinguishable). `merge_transact` verifies against `merge_8_1`, `merge_ring` against `merge_ring_8_1`. |
+| 8 in 1 out (merge) | Reconsolidate fragmented balance | Exactly 8 input slots of the same owner/asset, 1 combined output. Fewer-than-8 real inputs pad with dummy slots (ownership, inclusion, and nullifier derivation skipped; the deterministic dummy nullifier and the zeroed input-hash contribution keep padding indistinguishable). `merge_transact` verifies against `merge_8_1`, `merge_ring` against `merge_ring_8_1`. |
 
 # SPP - Solana Privacy Program
 
@@ -1754,10 +1759,10 @@ tree also used for outputs, no extra owner signers, and no public legs:
 | Transact 36 in 2 out | 1616 | 3055 | 40 |
 | Ring transact EdDSA 36 in 2 out | 1616 | 3120 | 42 |
 | Ring transact P256 36 in 2 out | 1713 | 3217 | 42 |
-| Merge 8 in 1 out, direct | 496 | 1140 | 14 |
-| Merge 8 in 1 out, execute_sync | 530 | 1176 | 16 |
-| Merge 36 in 1 out, direct | 1392 | 2960 | 42 |
-| Merge 36 in 1 out, execute_sync | 1454 | 3024 | 44 |
+| Merge 8 in 1 out, direct | 528 | 1172 | 14 |
+| Merge 8 in 1 out, execute_sync | 562 | 1208 | 16 |
+| Merge 36 in 1 out, direct | 1424 | 2992 | 42 |
+| Merge 36 in 1 out, execute_sync | 1486 | 3056 | 44 |
 
 v1 imposes a second ceiling that the byte count does not show: a message may
 name at most **64 account addresses**, and a transact adds one nullifier PDA per
@@ -2207,6 +2212,9 @@ struct MergeTransactIxData {
     /// (`owner_proof_input_hash(user_signing_pk)`) is derived from the
     /// registry account's ed25519 `owner` instead of its P256 `owner_p256`.
     eddsa_owner: bool,
+    /// Public input to the merge proof; defined under
+    /// [Merge Proof](#merge-proof---merge-zk-proof).
+    private_tx_hash: [u8; 32],
     /// Input nullifiers. Inserted into the nullifier queue and part of the
     /// public input hash. `u8` length prefix; length exactly 8.
     nullifiers: Vec<[u8; 32]>,
@@ -2240,8 +2248,8 @@ cache_address || u8(cache_slot))`, the last two only when `cache_slot` is set.
 
 An indexer rebuilds the [`GeneralEvent`](#general-event) with `inputs` from `nullifiers` (queue sequence numbers counted up from `input_trees[0].first_input_queue_seq`), one output `OutputUtxo { view_tag: event.output_view_tag, utxo_hash: output_utxo_hash, data: [] }`, `first_output_leaf_index = event.output_leaf_index`, zeroed `tx_viewing_pk` and `salt`, empty `messages` and `movements`.
 
-Serialized body: `239 + 32·N` bytes, `+1` with a cache slot (`192`-byte proof, one root-index pair, no ciphertext).
-With discriminator, `N = 8`: `496 B`; with `~206 B` transaction overhead: `~702 B`.
+Serialized body: `271 + 32·N` bytes, `+1` with a cache slot (`192`-byte proof, one root-index pair, no ciphertext).
+With discriminator, `N = 8`: `528 B`; with `~206 B` transaction overhead: `~734 B`.
 
 ### `merge_ring`
 

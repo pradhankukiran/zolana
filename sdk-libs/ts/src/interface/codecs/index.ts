@@ -319,6 +319,7 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .bytes(value.proof.c, 32, "proof.c")
     .bytes(value.outputUtxoHash, 32, "outputUtxoHash")
     .bool(value.eddsaOwner, "eddsaOwner")
+    .bytes(value.privateTxHash, 32, "privateTxHash")
     .u8(value.nullifiers.length, "nullifiers.length");
   for (const nullifier of value.nullifiers) writer.bytes(nullifier, 32, "nullifier");
   writer
@@ -329,7 +330,7 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     });
 }
 
-const MERGE_FIXED_DATA_LENGTH = 239;
+const MERGE_FIXED_DATA_LENGTH = 271;
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,

@@ -567,7 +567,7 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
 fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
     use zolana_keypair::NullifierKey;
     use zolana_transaction::instructions::merge::{
-        DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
+        merge_private_tx_blinding, DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
     };
     #[derive(serde::Deserialize)]
     struct Vectors {
@@ -580,6 +580,7 @@ fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
         output_blinding: String,
         dummy_slot_index: u8,
         dummy_nullifier: String,
+        private_tx_blinding: String,
     }
     let vector: Vectors =
         serde_json::from_str(include_str!("../../../test-vectors/key_derivation.json")).unwrap();
@@ -625,5 +626,17 @@ fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
             vector.dummy_slot_index.checked_add(1).unwrap()
         )
         .unwrap()
+    );
+    let private = merge_private_tx_blinding(&key, &first).unwrap();
+    assert_eq!(hex::encode(private), vector.private_tx_blinding);
+    assert_ne!(private, output);
+    assert_ne!(private, dummy);
+    assert_ne!(
+        private,
+        merge_private_tx_blinding(&other_key, &first).unwrap()
+    );
+    assert_ne!(
+        private,
+        merge_private_tx_blinding(&key, &other_first).unwrap()
     );
 }

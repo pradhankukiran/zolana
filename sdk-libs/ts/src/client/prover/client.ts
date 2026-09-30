@@ -692,6 +692,7 @@ function mergeProverRequest(
     userNullifierPk: hex(inputs.userNullifierPublicKey, "userNullifierPk"),
     userNullifierSecret: secret(inputs.userNullifierSecret, "userNullifierSecret"),
     externalDataHash: hex(inputs.externalDataHash, "externalDataHash"),
+    privateTxHash: hex(inputs.privateTxHash, "privateTxHash"),
     allowDummyInputs: hex(inputs.allowDummyInputs, "allowDummyInputs"),
     outputRingDataHash: hex(inputs.outputRingDataHash, "outputRingDataHash"),
     ringProgramId: hex(inputs.ringProgramId, "ringProgramId"),

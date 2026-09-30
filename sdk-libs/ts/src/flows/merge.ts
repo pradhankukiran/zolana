@@ -20,6 +20,7 @@ export async function prepareMerge(
   const answers = await input.keys.derive(
     [
       { kind: "mergeOutputBlinding", firstNullifier },
+      { kind: "mergePrivateTxBlinding", firstNullifier },
       ...slots.map((slotIndex) => ({
         kind: "mergeDummyNullifier" as const,
         firstNullifier,
@@ -28,16 +29,17 @@ export async function prepareMerge(
     ],
     context,
   );
-  const [outputBlinding, ...dummyNullifiers] = deriveAnswers(
+  const [outputBlinding, privateTxBlinding, ...dummyNullifiers] = deriveAnswers(
     answers,
-    1 + slots.length,
+    2 + slots.length,
     input.invalidAnswers,
   );
-  if (outputBlinding === undefined) throw input.invalidAnswers();
+  if (outputBlinding === undefined || privateTxBlinding === undefined) throw input.invalidAnswers();
   return new Merge({
     address: input.keys.address(),
     inputs: input.inputs,
     outputBlinding,
+    privateTxBlinding,
     dummyNullifiers,
     ...(input.outputTreeId === undefined ? {} : { outputTreeId: input.outputTreeId }),
     ...(input.ring === undefined ? {} : { ring: input.ring }),
