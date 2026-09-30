@@ -12,11 +12,8 @@ use zolana_interface::{
     tree_slot::tree_id_field,
 };
 use zolana_keypair::{Curve, NullifierKey};
-use zolana_transaction::instructions::{
-    merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
-    },
-    transact::PrivateTxHash,
+use zolana_transaction::instructions::merge::{
+    merge_dummy_nullifier, merge_output_blinding, MergeProofInputs,
 };
 
 use super::{
@@ -91,7 +88,6 @@ impl IndexedMergePreparation {
         let mut inputs = Vec::new();
         let mut lookups = Vec::new();
         let mut nullifiers = Vec::new();
-        let mut input_hashes = Vec::new();
         let mut total = 0u64;
         let mut saw_dummy = false;
         for (index, input) in merge.input_utxos.iter().enumerate() {
@@ -147,7 +143,6 @@ impl IndexedMergePreparation {
                 tree_slot: 0,
                 commitment: (!dummy).then_some(hash),
             });
-            input_hashes.push(hash);
             nullifiers.push(nullifier);
         }
         let outputs = assemble_outputs(
@@ -180,18 +175,10 @@ impl IndexedMergePreparation {
                 .map(|target| (target.address.as_array(), target.slot)),
         }
         .hash()?;
-        let private = PrivateTxHash::new(
-            &input_hashes,
-            &outputs.private_tx_output_hashes,
-            &external,
-            &merge_private_tx_blinding(&nullifier_key, &first_nullifier)?,
-        )
-        .hash()?;
         let public_inputs = vec![
             create_hash_chain_4_from_slice(&nullifiers)?,
             output_hash,
             tree_id_field(merge.output_tree_id),
-            private,
             external,
             scalar_one(),
             if merge.ring_program_id.is_some() {
@@ -224,7 +211,6 @@ impl IndexedMergePreparation {
                 &*nullifier_key.secret(),
             )?)),
             external_data_hash: hex_field(&external),
-            private_tx_hash: hex_field(&private),
             allow_dummy_inputs: "0x1",
             output_ring_data_hash: hex_field(&ring_data_hash),
             ring_program_id: hex_field(&ring_hash),
@@ -249,7 +235,6 @@ impl IndexedMergePreparation {
             nullifiers,
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
-            private_tx_hash: private,
             cache_slot: cache.map(|target| target.slot),
             eddsa_owner: matches!(merge.signing_pubkey.curve()?, Curve::Ed25519 | Curve::Pda),
         };
@@ -337,7 +322,6 @@ struct PreparedMergeJson {
     user_nullifier_pk: String,
     user_nullifier_secret: SecretField,
     external_data_hash: String,
-    private_tx_hash: String,
     allow_dummy_inputs: &'static str,
     output_ring_data_hash: String,
     ring_program_id: String,
@@ -406,8 +390,9 @@ mod tests {
                 .get("statePathElements")
                 .is_none());
             assert_eq!(body["inputs"][1]["commitment"], serde_json::Value::Null);
-            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 8);
-            assert_eq!(body["publicInputs"][7], body["prepared"]["userNullifierPk"]);
+            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 7);
+            assert_eq!(body["publicInputs"][6], body["prepared"]["userNullifierPk"]);
+            assert!(body["prepared"].get("privateTxHash").is_none());
         }
     }
 

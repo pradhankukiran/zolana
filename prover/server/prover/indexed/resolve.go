@@ -72,10 +72,8 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 		expected = 14
 	case common.TransferP256RingCircuitType:
 		expected = 19
-	case common.MergeCircuitType:
-		expected = 8
-	case common.MergeRingCircuitType:
-		expected = 8
+	case common.MergeCircuitType, common.MergeRingCircuitType:
+		expected = 7
 	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
 		expected = 19
 	case common.CustomRingCompressedPolicyCircuitType:
@@ -91,11 +89,6 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 		}
 		if _, err := hashField(field); err != nil {
 			return request, nil, err
-		}
-	}
-	for index, input := range request.Inputs {
-		if !policyCircuit(request.CircuitType) && index > 0 && input.TreeSlot < request.Inputs[index-1].TreeSlot {
-			return request, nil, fmt.Errorf("interleaved input trees")
 		}
 	}
 	prepared, err := decodePrepared(request)

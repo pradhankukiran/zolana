@@ -52,7 +52,6 @@ it.each([1, 8])("hashes each real merge input once with %i real inputs", (count)
       input.utxo.blinding.fill(0);
       const second = prepareMerge(prepared, tree);
       expect(second.inputs.lookups[0]?.commitment).not.toEqual(expected[0]);
-      expect(second.inputs.payload.privateTxHash).not.toBe(first.inputs.payload.privateTxHash);
       expect(first.inputs.lookups[0]?.commitment).toEqual(expected[0]);
     } finally {
       hashes.forEach((hash) => hash.mockRestore());
@@ -160,10 +159,10 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(payload).not.toHaveProperty("treeSlots");
     expect(typeof payload["userNullifierSecret"]).toBe("string");
     expect(decode.list(payload["inputs"], "inputs")).toHaveLength(8);
-    expect(payload["privateTxHash"]).toBe(`0x${local.inputs.payload.privateTxHash.toString(16)}`);
+    expect(payload).not.toHaveProperty("privateTxHash");
     const publicInputs = decode.list(envelope["publicInputs"], "publicInputs");
-    expect(publicInputs).toHaveLength(8);
-    expect(publicInputs[7]).toBe(payload["userNullifierPk"]);
+    expect(publicInputs).toHaveLength(7);
+    expect(publicInputs[6]).toBe(payload["userNullifierPk"]);
     for (const provingKeySha256 of [undefined, "00".repeat(32)]) {
       fetch.mockResolvedValueOnce(Response.json({ ...STANDARD_PROOF, provingKeySha256 }));
       await expect(client.proveMerge({ prepared, keys })).rejects.toMatchObject({

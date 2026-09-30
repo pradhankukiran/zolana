@@ -1,10 +1,6 @@
 import type { Address, Bytes16, Bytes32, OwnerTag } from "../../interface/types.js";
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
-import {
-  mergeDummyNullifier,
-  mergeOutputBlinding,
-  mergePrivateTxBlinding,
-} from "../../keypair/merge/index.js";
+import { mergeDummyNullifier, mergeOutputBlinding } from "../../keypair/merge/index.js";
 import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 
@@ -58,7 +54,6 @@ export class PreparedMerge {
   /** The tree the merged output is appended to. */
   readonly outputTreeId: TreeId;
   readonly #dummyNullifiers: readonly Bytes32[];
-  readonly #privateTxBlinding: Bytes32;
 
   constructor(
     input: Readonly<{
@@ -69,8 +64,6 @@ export class PreparedMerge {
       nullifierPublicKey: Bytes32;
       /** One per padded slot, in slot order: `mergeDummyNullifier(firstNullifier, slot)`. */
       dummyNullifiers: readonly Bytes32[];
-      /** `mergePrivateTxBlinding(firstNullifier)`. */
-      privateTxBlinding: Bytes32;
       outputTreeId: TreeId;
     }>,
   ) {
@@ -112,11 +105,6 @@ export class PreparedMerge {
         checked<Bytes32>(nullifier, 32, `dummy nullifier ${String(index)}`),
       ),
     );
-    this.#privateTxBlinding = checked<Bytes32>(
-      input.privateTxBlinding,
-      32,
-      "merge private tx blinding",
-    );
     this.outputTreeId = checkedTreeId(input.outputTreeId);
   }
 
@@ -134,10 +122,6 @@ export class PreparedMerge {
 
   dummyNullifiers(): readonly Bytes32[] {
     return Object.freeze(this.#dummyNullifiers.map((value) => new Uint8Array(value) as Bytes32));
-  }
-
-  privateTxBlinding(): Bytes32 {
-    return new Uint8Array(this.#privateTxBlinding) as Bytes32;
   }
 
   /** The slots the padding fills, in order; what `dummyNullifiers` was derived for. */
@@ -199,9 +183,8 @@ function realInputContexts(
 
 /**
  * Consolidates up to `MAX_MERGE_INPUTS` plain UTXOs of one owner and asset into one.
- * The output blinding, private-transaction blinding, and padded slots'
- * nullifiers derive from the nullifier secret; the builder receives them
- * derived by `ShieldedKeys.derive`.
+ * The output blinding and padded slots' nullifiers derive from the nullifier
+ * secret; the builder receives them derived by `ShieldedKeys.derive`.
  */
 export class Merge {
   #prepared: PreparedMerge;
@@ -212,8 +195,6 @@ export class Merge {
       inputs: readonly ProofInputUtxo[];
       /** `mergeOutputBlinding(firstNullifier)`. */
       outputBlinding: Bytes32;
-      /** `mergePrivateTxBlinding(firstNullifier)`. */
-      privateTxBlinding: Bytes32;
       /** `mergeDummyNullifier(firstNullifier, slot)` for each padded slot. */
       dummyNullifiers: readonly Bytes32[];
       outputTreeId?: TreeId;
@@ -276,7 +257,6 @@ export class Merge {
       signingPublicKey: owner,
       nullifierPublicKey: address.nullifierPublicKey,
       dummyNullifiers: input.dummyNullifiers,
-      privateTxBlinding: input.privateTxBlinding,
       outputTreeId: checkedTreeId(input.outputTreeId ?? DEFAULT_TREE_ID),
     });
   }
@@ -296,7 +276,6 @@ export class Merge {
         address: keypair.shieldedAddress(),
         inputs,
         outputBlinding: mergeOutputBlinding(nullifierKey, firstNullifier),
-        privateTxBlinding: mergePrivateTxBlinding(nullifierKey, firstNullifier),
         dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
           mergeDummyNullifier(nullifierKey, firstNullifier, slot),
         ),
@@ -319,7 +298,6 @@ export class Merge {
       signingPublicKey: this.#prepared.signingPublicKey,
       nullifierPublicKey: this.#prepared.nullifierPublicKey,
       dummyNullifiers: this.#prepared.dummyNullifiers(),
-      privateTxBlinding: this.#prepared.privateTxBlinding(),
       outputTreeId: this.#prepared.outputTreeId,
     });
     return this;
@@ -334,7 +312,6 @@ export class Merge {
       signingPublicKey: this.#prepared.signingPublicKey,
       nullifierPublicKey: this.#prepared.nullifierPublicKey,
       dummyNullifiers: this.#prepared.dummyNullifiers(),
-      privateTxBlinding: this.#prepared.privateTxBlinding(),
       outputTreeId: checkedTreeId(outputTreeId),
     });
     return this;

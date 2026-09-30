@@ -83,7 +83,6 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     inputs,
     outputTreeId: field("outputTreeId"),
     externalDataHash: field("externalDataHash"),
-    privateTxHash: field("privateTxHash"),
     ringProgramId: field("ringProgramId"),
   };
   const minContextSlot = checkedContextSlot(request["minContextSlot"]);
@@ -127,6 +126,7 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
           circuit,
           payload: {
             ...common,
+            privateTxHash: field("privateTxHash"),
             outputs: requestDecoder.list(payload["outputs"], "outputs").map(decodeOutput),
             blindingSeed: field("blindingSeed"),
             publicAssets: fields("publicAssets"),
@@ -314,7 +314,7 @@ function checkStatement(inputs: IndexedProofInputs): void {
     inputs.trees.length > 2 ||
     inputs.lookups.length !== inputs.payload.inputs.length ||
     inputs.publicInputs.length !==
-      (inputs.circuit === "merge" ? 8 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
+      (inputs.circuit === "merge" ? 7 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
   )
     throw invalid();
   if (inputs.circuit === "merge") {
@@ -339,8 +339,9 @@ function checkStatement(inputs: IndexedProofInputs): void {
     )
       throw invalid();
   });
+  // Inputs from different trees may interleave, so a dummy only needs an
+  // earlier input to have opened the tree it names.
   const used = new Set<number>();
-  let previous = -1;
   inputs.lookups.forEach((lookup, index) => {
     const input = inputs.payload.inputs[index];
     const cached = inputs.circuit === "merge" ? 0n : (inputs.payload.cacheIsCached[index] ?? 0n);
@@ -351,16 +352,14 @@ function checkStatement(inputs: IndexedProofInputs): void {
       throw invalid();
     if (
       input === undefined ||
-      lookup.treeSlot < previous ||
       lookup.treeSlot >= inputs.trees.length ||
       BigInt(lookup.treeSlot) !== input.treeSlot ||
       (input.isDummy !== 0n && input.isDummy !== 1n) ||
       (lookup.commitment === null) !== (input.isDummy === 1n || cached === 1n)
     )
       throw invalid();
-    if (lookup.treeSlot !== previous && input.isDummy === 1n) throw invalid();
+    if (input.isDummy === 1n && !used.has(lookup.treeSlot)) throw invalid();
     if (lookup.commitment !== null) bytesField(lookup.commitment, "commitment");
-    previous = lookup.treeSlot;
     used.add(lookup.treeSlot);
   });
   if (used.size !== inputs.trees.length) throw invalid();
