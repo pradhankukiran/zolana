@@ -206,11 +206,16 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_shape() {
-        let mut owned = data();
-        owned.nullifiers.pop();
-        let bytes = owned.serialize().unwrap();
-        assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_err());
+    fn rejects_empty_and_oversized_nullifier_lists() {
+        for count in [0, MAX_MERGE_INPUTS + 1] {
+            let mut owned = data();
+            owned.nullifiers = vec![[1u8; 32]; count];
+            let bytes = owned.serialize().unwrap();
+            assert!(
+                MergeTransactIxDataRef::from_bytes(&bytes).is_err(),
+                "{count} nullifiers"
+            );
+        }
     }
 
     fn hash_of(discriminator: u8, expiry: u64, output: &[u8; 32]) -> [u8; 32] {
