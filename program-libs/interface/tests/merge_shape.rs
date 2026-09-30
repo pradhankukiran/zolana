@@ -1,5 +1,5 @@
 use zolana_interface::instruction::instruction_data::merge_transact::{
-    MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
+    MergeCircuit, MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
     MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
 };
 
@@ -13,6 +13,7 @@ fn data_with(input_count: usize) -> MergeTransactIxData {
             c: [3u8; 32],
         },
         output_utxo_hash: [9u8; 32],
+        circuit: MergeCircuit::from_num_inputs(input_count).expect("supported merge width"),
         nullifiers: (0..input_count).map(|i| [i as u8; 32]).collect(),
         utxo_tree_root_index: 4,
         nullifier_tree_root_index: 10,

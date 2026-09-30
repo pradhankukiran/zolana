@@ -46,6 +46,10 @@ type Transaction struct {
 
 	Nullifiers   []frontend.Variable
 	OutputHashes []frontend.Variable
+	// CompactSlots of Nullifiers and OutputHashes, computed once and shared by
+	// every check on compact padding.
+	InputIsCompact  []frontend.Variable
+	OutputIsCompact []frontend.Variable
 	// InputTrees tree slots inputs may be spent from. An input picks its slot
 	// privately (Input.TreeSlot).
 	TreeSlots []TreeSlot
@@ -114,6 +118,8 @@ func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
 	checks := []LengthCheck{
 		{"nullifier", len(t.Nullifiers), t.Shape.NInputs},
 		{"output hash", len(t.OutputHashes), t.Shape.NOutputs},
+		{"input compact flag", len(t.InputIsCompact), t.Shape.NInputs},
+		{"output compact flag", len(t.OutputIsCompact), t.Shape.NOutputs},
 		{"tree slot", len(t.TreeSlots), InputTrees},
 		{"output", len(t.Outputs), t.Shape.NOutputs},
 	}
@@ -150,9 +156,14 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		// The dummy policy is SPP's nullifier-capacity gate: a spend consumes a
 		// nullifier leaf for a UTXO leaf that already exists, while dummy and
 		// address slots insert a nullifier without spending one. When the gate is
-		// off, every input slot must therefore be a real UTXO.
+		// off, every input slot must therefore be a real UTXO or compact padding,
+		// which publishes nullifier 0 and inserts nothing.
 		api.AssertIsEqual(
-			api.Mul(api.Sub(1, allowDummyInputs), api.Sub(1, in.isUtxo(api))),
+			api.Mul(
+				api.Sub(1, allowDummyInputs),
+				api.Sub(1, in.isUtxo(api)),
+				api.Sub(1, t.InputIsCompact[i]),
+			),
 			0,
 		)
 		// The slot an input spends from is private, but the program routes its
@@ -164,6 +175,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		)
 		signals := PublicInputUtxoInputs{
 			Nullifier: t.Nullifiers[i],
+			IsCompact: t.InputIsCompact[i],
 			SignerPk:  signers[i],
 			Tree:      SelectTreeSlot(api, in.TreeSlot, t.TreeSlots, t.skipInclusion == nil),
 		}
@@ -176,8 +188,11 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	if t.CachedInputs != nil {
 		t.CachedInputs.constrain(api, t, inputHashes, inputTreeIDs)
 	}
-	AssertDistinctNullifiers(api, t.Nullifiers)
+	AssertDistinctNullifiers(api, t.Nullifiers, t.InputIsCompact)
 	AssertDummiesLast(api, inputUtxos(t.Inputs))
+	// The first nullifier seeds every output blinding and the private tx
+	// blinding, so slot 0 cannot be compact padding.
+	api.AssertIsDifferent(t.Nullifiers[0], 0)
 
 	// 2. check outputs
 	outputBlindingSeed := DeriveOutputBlindingSeed(api, t.Nullifiers[0], t.BlindingSeed)
@@ -187,7 +202,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 			utxo.Blinding,
 			DeriveOutputBlinding(api, t.Nullifiers[0], outputBlindingSeed, i),
 		)
-		outputHashes[i] = ConstrainOutput(api, utxo, t.OutputHashes[i], outputSigned[i], t.OutputTreeID)
+		outputHashes[i] = ConstrainOutput(api, utxo, t.OutputHashes[i], t.OutputIsCompact[i], outputSigned[i], t.OutputTreeID)
 	}
 	AssertDummiesLast(api, t.Outputs)
 
@@ -217,8 +232,8 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 
 func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 	fields := []frontend.Variable{
-		gadget.HashChain4(api, t.Nullifiers),
-		gadget.HashChain4(api, t.OutputHashes),
+		gadget.RightHashChain4(api, t.Nullifiers),
+		gadget.RightHashChain4(api, t.OutputHashes),
 		TreeSlotsHashChain(api, t.TreeSlots),
 		t.OutputTreeID,
 		t.PrivateTxHash,
@@ -322,6 +337,21 @@ const _ = uint((1 << TreeIndexBits) - InputTrees)
 // assertZeroWhen constrains v == 0 only when cond == 1 (see gadget.AssertZeroWhen).
 func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
 	abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: cond, V: v})
+}
+
+// AssertEqualWhen constrains a == b only when cond == 1.
+func AssertEqualWhen(api frontend.API, cond, a, b frontend.Variable) {
+	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: cond, A: a, B: b})
+}
+
+// CompactSlots returns IsZero of each published value: a zero nullifier or
+// output hash marks compact padding, which the instruction does not carry.
+func CompactSlots(api frontend.API, values []frontend.Variable) []frontend.Variable {
+	flags := make([]frontend.Variable, len(values))
+	for i, value := range values {
+		flags[i] = api.IsZero(value)
+	}
+	return flags
 }
 
 // AssertWhen constrains check == 1 only when cond == 1. Check functions return

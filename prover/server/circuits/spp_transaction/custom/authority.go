@@ -70,6 +70,8 @@ func (c *CustomRingAuthorityCircuit) transaction(api frontend.API) shared.Transa
 		Shape:             c.Shape,
 		Nullifiers:        c.Public.Nullifiers,
 		OutputHashes:      c.Public.OutputHashes,
+		InputIsCompact:    shared.CompactSlots(api, c.Public.Nullifiers),
+		OutputIsCompact:   shared.CompactSlots(api, c.Public.OutputHashes),
 		TreeSlots:         c.Public.TreeSlots,
 		OutputTreeID:      c.Public.OutputTreeID,
 		Inputs:            c.Private.Inputs,

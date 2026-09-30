@@ -57,6 +57,23 @@ func AssertPublishedOutputOwners(
 	return nil
 }
 
+// AssertCompactOutputTagsZero requires every compact padding output (see
+// CompactSlots) to publish tag 0: SPP pads the owner tag chain with zeros for
+// the outputs the instruction does not carry.
+func AssertCompactOutputTagsZero(
+	api frontend.API,
+	outputIsCompact []frontend.Variable,
+	publishedOwnerPkHashes []frontend.Variable,
+) error {
+	if err := ValidateLength("published output owner pk hash", len(publishedOwnerPkHashes), len(outputIsCompact)); err != nil {
+		return err
+	}
+	for i, isCompact := range outputIsCompact {
+		assertZeroWhen(api, isCompact, publishedOwnerPkHashes[i])
+	}
+	return nil
+}
+
 // AssertMaskedDummyOutputTags constrains the published tag of every dummy
 // output. Zero is allowed: a real policy-ring output publishes zero, so
 // a zero dummy hides among them. A non-zero tag must repeat an identity this
@@ -102,12 +119,16 @@ func AssertMaskedDummyOutputTags(
 // self-paid transaction without change adds a zero-amount change output
 // instead of a dummy. Callers pass the signer vector without the payer.
 //
+// Compact padding outputs (outputIsCompact, see CompactSlots) are exempt: their
+// tag is pinned to 0 by AssertCompactOutputTagsZero.
+//
 // inputOwnerPkHashes applies the same rule to dummy inputs. Every current rail
 // keeps input owners private and passes nil for it.
 func AssertDummyTags(
 	api frontend.API,
 	inputs []Input,
 	outputs []UtxoCircuitFields,
+	outputIsCompact []frontend.Variable,
 	inputOwnerPkHashes []frontend.Variable,
 	outputOwnerPkHashes []frontend.Variable,
 	signers Signers,
@@ -115,6 +136,9 @@ func AssertDummyTags(
 	participants := append(Signers(nil), signers...)
 	if outputOwnerPkHashes != nil {
 		if err := ValidateLength("output owner pk hash", len(outputOwnerPkHashes), len(outputs)); err != nil {
+			return err
+		}
+		if err := ValidateLength("output compact flag", len(outputIsCompact), len(outputs)); err != nil {
 			return err
 		}
 		for i, utxo := range outputs {
@@ -133,7 +157,8 @@ func AssertDummyTags(
 	}
 	if outputOwnerPkHashes != nil {
 		for i, utxo := range outputs {
-			AssertWhen(api, utxo.isDummy(api), participants.Contains(api, outputOwnerPkHashes[i]))
+			isNonCompactDummy := api.Mul(utxo.isDummy(api), api.Sub(1, outputIsCompact[i]))
+			AssertWhen(api, isNonCompactDummy, participants.Contains(api, outputOwnerPkHashes[i]))
 		}
 	}
 	return nil

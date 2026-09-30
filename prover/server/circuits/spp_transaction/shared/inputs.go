@@ -29,6 +29,8 @@ type Input struct {
 // selected.
 type PublicInputUtxoInputs struct {
 	Nullifier frontend.Variable
+	// IsCompact is 1 when Nullifier is 0 (see CompactSlots).
+	IsCompact frontend.Variable
 	SignerPk  frontend.Variable
 	Tree      TreeSlot
 	// SkipInclusion is nil for circuits that always require state-tree
@@ -69,11 +71,14 @@ func inputUtxos(inputs []Input) []UtxoCircuitFields {
 }
 
 // AssertDistinctNullifiers asserts pairwise inequality so no input slot is
-// spent twice within one proof.
-func AssertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) {
+// spent twice within one proof. Compact padding slots all publish 0, so a pair
+// of zeros is exempt; a zero never equals a nonzero nullifier. isCompact[i]
+// must be IsZero(nullifiers[i]) (CompactSlots).
+func AssertDistinctNullifiers(api frontend.API, nullifiers, isCompact []frontend.Variable) {
 	for i := range nullifiers {
 		for j := i + 1; j < len(nullifiers); j++ {
-			api.AssertIsDifferent(nullifiers[i], nullifiers[j])
+			bothZero := api.Mul(isCompact[i], isCompact[j])
+			api.AssertIsDifferent(api.Add(api.Sub(nullifiers[i], nullifiers[j]), bothZero), 0)
 		}
 	}
 }
@@ -90,10 +95,15 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	// Tokenless data utxos use SOL as asset.
 	assertZeroWhen(api, isUtxo, api.IsZero(in.Utxo.Asset))
 
-	// Checks for UTXO, dummy UTXO, adddress:
+	// A zero public nullifier marks compact padding: the slot must be a dummy,
+	// and SPP neither receives nor inserts its nullifier.
+	isCompact := signals.IsCompact
+	AssertWhen(api, isCompact, in.isDummy(api))
+
+	// Checks for UTXO, dummy UTXO, adddress unless compact:
 	// 1. nullifier must not exist in nullifier tree.
 	utxoHash := UtxoHashCircuit(api, in.Utxo, signals.Tree.ID)
-	in.checkNonInclusion(api, utxoHash, signals)
+	in.checkNonInclusion(api, utxoHash, api.Sub(1, isCompact), signals)
 
 	// Checks UTXO and address:
 	// 1. Check owner hash matches UTXO.
@@ -200,14 +210,16 @@ func allZero(api frontend.API, values ...frontend.Variable) frontend.Variable {
 //  3. nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
 //
 // -> nullifier does not exist yet in indexed Merkle tree.
-func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, signals PublicInputUtxoInputs) {
+//
+// Every check is gated on enabled, which is 0 only for compact padding.
+func (in Input) checkNonInclusion(api frontend.API, utxoHash, enabled frontend.Variable, signals PublicInputUtxoInputs) {
 	nullifier := abstractor.Call(api, NullifierGadget{
 		UtxoHash:        utxoHash,
 		Blinding:        in.Utxo.Blinding,
 		NullifierSecret: in.NullifierSecret,
 	})
 	// 1. Derived nullifier equals public nullifier.
-	api.AssertIsEqual(nullifier, signals.Nullifier)
+	AssertEqualWhen(api, enabled, nullifier, signals.Nullifier)
 
 	// 2. indexed leaf H(in.NullifierLowValue, in.NullifierNextValue) exists in nullifier tree.
 	lowLeafHash := gadgetlib.IndexedLeafHash(api, in.NullifierLowValue, in.NullifierNextValue)
@@ -218,9 +230,14 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 		Path:   in.NullifierLowPathElements,
 		Height: NullifierTreeHeight,
 	})
-	api.AssertIsEqual(nfRoot, signals.Tree.NullifierRoot)
+	AssertEqualWhen(api, enabled, nfRoot, signals.Tree.NullifierRoot)
 	// 3.  nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
-	assertStrictlyOrdered(api, in.NullifierLowValue, signals.Nullifier, in.NullifierNextValue)
+	abstractor.CallVoid(api, AssertStrictlyOrderedWhen{
+		Cond: enabled,
+		Lo:   in.NullifierLowValue,
+		Mid:  signals.Nullifier,
+		Hi:   in.NullifierNextValue,
+	})
 }
 
 type nullifierPkGadget struct {
@@ -260,6 +277,20 @@ func (gadget AssertStrictlyOrdered) DefineGadget(api frontend.API) interface{} {
 	return []frontend.Variable{}
 }
 
-func assertStrictlyOrdered(api frontend.API, lo, mid, hi frontend.Variable) {
-	abstractor.CallVoid(api, AssertStrictlyOrdered{Lo: lo, Mid: mid, Hi: hi})
+// AssertStrictlyOrderedWhen is AssertStrictlyOrdered enforced only when
+// Cond == 1. Compact padding publishes nullifier 0, which no low leaf brackets.
+type AssertStrictlyOrderedWhen struct {
+	Cond frontend.Variable
+	Lo   frontend.Variable
+	Mid  frontend.Variable
+	Hi   frontend.Variable
+}
+
+func (gadget AssertStrictlyOrderedWhen) DefineGadget(api frontend.API) interface{} {
+	loLimbs := gadgetlib.CanonicalLimbs(api, gadget.Lo)
+	midLimbs := gadgetlib.CanonicalLimbs(api, gadget.Mid)
+	hiLimbs := gadgetlib.CanonicalLimbs(api, gadget.Hi)
+	AssertWhen(api, gadget.Cond, gadgetlib.IsLessLimbs(api, loLimbs, midLimbs))
+	AssertWhen(api, gadget.Cond, gadgetlib.IsLessLimbs(api, midLimbs, hiLimbs))
+	return []frontend.Variable{}
 }

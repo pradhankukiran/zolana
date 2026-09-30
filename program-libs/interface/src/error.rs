@@ -179,6 +179,10 @@ pub enum ShieldedPoolError {
     CacheWriteAuthorityMismatch = 7076,
     #[error("rent recipient is not the cache's rent sponsor")]
     CacheRentRecipientMismatch = 7077,
+    #[error("input nullifier must be nonzero; zero marks compact padding")]
+    ZeroInputNullifier = 7078,
+    #[error("output utxo hash must be nonzero; zero marks compact padding")]
+    ZeroOutputUtxoHash = 7079,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -301,6 +305,8 @@ mod tests {
                 CacheExpiryNotInFuture => 7075,
                 CacheWriteAuthorityMismatch => 7076,
                 CacheRentRecipientMismatch => 7077,
+                ZeroInputNullifier => 7078,
+                ZeroOutputUtxoHash => 7079,
             }
         }
 
@@ -383,6 +389,8 @@ mod tests {
             CacheExpiryNotInFuture,
             CacheWriteAuthorityMismatch,
             CacheRentRecipientMismatch,
+            ZeroInputNullifier,
+            ZeroOutputUtxoHash,
         ];
         let codes = (7000_u32..).filter(|code| *code != 7063 && *code != 7072);
         for (variant, code) in variants.into_iter().zip(codes) {

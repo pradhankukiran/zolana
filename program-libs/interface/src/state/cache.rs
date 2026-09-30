@@ -5,9 +5,10 @@ use zolana_hasher::{
 };
 
 use crate::{
+    instruction::instruction_data::merge_transact::MAX_MERGE_INPUTS,
     tree_slot::tree_id_field,
     verifying_keys::{CacheWrite, MAX_CACHE_WRITES},
-    MAX_TRANSACT_INPUTS,
+    MAX_OUTPUTS, MAX_TRANSACT_INPUTS,
 };
 
 pub const CACHE_SEED: &[u8] = b"cache";
@@ -96,7 +97,10 @@ pub fn cached_input_fields(
             MAX_TRANSACT_INPUTS,
             input_count,
         ))?;
-    Ok([tree_id_field(tree_id), cached_utxo_hash_chain(list)?])
+    Ok([
+        tree_id_field(tree_id),
+        zero_suffix_right_hash_chain_4(list)?,
+    ])
 }
 
 /// Number of groups the right fold visits after its seed, at the widest shape.
@@ -106,9 +110,12 @@ const ZERO_SUFFIX_GROUPS: usize = (MAX_TRANSACT_INPUTS - 1).div_ceil(3);
 /// `Z(0) = 0` and `Z(k) = Poseidon(0, 0, 0, Z(k - 1))`.
 ///
 /// The value depends on the suffix length alone and not on the vector that
-/// ends with it, so one table serves every input count: a cached spend seeds
-/// the fold from the entry its unselected tail reaches, and a spend that draws
-/// on no cache seeds from the entry for its whole width and hashes nothing.
+/// ends with it, so one table serves every right-folded public-input chain: a
+/// cached spend seeds the fold from the entry its unselected tail reaches, a
+/// spend that draws on no cache seeds from the entry for its whole width and
+/// hashes nothing, and the transact and merge nullifier, output hash and
+/// output owner tag chains seed from the entry their compact padding reaches
+/// ([`padded_right_hash_chain_4`]).
 ///
 /// Pinned by `the_zero_suffix_table_is_the_fold_over_zeros`; regenerate with
 /// the ignored `print_zero_suffix_chains`.
@@ -182,14 +189,38 @@ pub static ZERO_SUFFIX_CHAINS: [[u8; 32]; ZERO_SUFFIX_GROUPS + 1] = [
 
 const EMPTY_SLOT: [u8; 32] = [0u8; 32];
 
-/// The right fold of `utxo_hashes`, seeded past its trailing zeros.
+// `padded_right_hash_chain_4` pads into a `MAX_TRANSACT_INPUTS` buffer, which
+// must hold the widest chain it folds.
+const _: () = assert!(MAX_MERGE_INPUTS <= MAX_TRANSACT_INPUTS);
+const _: () = assert!(MAX_OUTPUTS <= MAX_TRANSACT_INPUTS);
+
+/// The circuit's right fold over `width` slots: `sent` fills the leading slots
+/// and compact padding (zero) the rest. The zero suffix comes from
+/// [`ZERO_SUFFIX_CHAINS`], so the cost scales with the sent count.
+pub fn padded_right_hash_chain_4<'a>(
+    sent: impl IntoIterator<Item = &'a [u8; 32]>,
+    width: usize,
+) -> Result<[u8; 32], HasherError> {
+    let mut padded = [EMPTY_SLOT; MAX_TRANSACT_INPUTS];
+    let slots = padded
+        .get_mut(..width)
+        .ok_or(HasherError::InvalidInputLength(MAX_TRANSACT_INPUTS, width))?;
+    for (index, value) in sent.into_iter().enumerate() {
+        *slots
+            .get_mut(index)
+            .ok_or(HasherError::InvalidInputLength(width, index + 1))? = *value;
+    }
+    zero_suffix_right_hash_chain_4(slots)
+}
+
+/// The right fold of `values`, seeded past its trailing zeros.
 ///
 /// Every whole group of trailing zeros the fold would visit first folds to a
 /// constant of the suffix length alone, so it is a table entry instead of a
 /// Poseidon call. That is plain algebra over zeros and holds for any input, so
 /// the result is always the full fold.
-fn cached_utxo_hash_chain(utxo_hashes: &[[u8; 32]]) -> Result<[u8; 32], HasherError> {
-    let Some((last, prefix)) = utxo_hashes.split_last() else {
+fn zero_suffix_right_hash_chain_4(values: &[[u8; 32]]) -> Result<[u8; 32], HasherError> {
+    let Some((last, prefix)) = values.split_last() else {
         return Ok(EMPTY_SLOT);
     };
     if *last != EMPTY_SLOT {

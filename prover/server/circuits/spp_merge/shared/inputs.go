@@ -28,7 +28,8 @@ type mergeInputContext struct {
 //
 // 2. Dummy
 // - all UTXO fields and nullifier secret are zero
-// - nullifier is derived deterministically
+// - nullifier is derived deterministically, or 0 for compact padding
+// - compact padding skips non-inclusion; SPP neither receives nor inserts it
 //
 // tree is the slot the input's private TreeSlot selected.
 func constrainInput(
@@ -37,10 +38,13 @@ func constrainInput(
 	ctx mergeInputContext,
 	tree transaction.TreeSlot,
 	slotIndex int,
+	isCompact frontend.Variable,
 ) (frontend.Variable, frontend.Variable) {
 	isDummy := api.IsZero(api.Sub(in.Domain, DummyDomain))
 	isUtxo := api.IsZero(api.Sub(in.Domain, UtxoDomain))
 	api.AssertIsEqual(api.Add(isUtxo, isDummy), 1)
+	transaction.AssertWhen(api, isCompact, isDummy)
+	notCompact := api.Sub(1, isCompact)
 	notDummy := isUtxo
 	abstractor.CallVoid(api, transaction.RangeCheck64{Value: in.Amount})
 
@@ -69,7 +73,7 @@ func constrainInput(
 		Path:   in.StatePathElements,
 		Height: transaction.StateTreeHeight,
 	})
-	assertEqualWhen(api, notDummy, stateRoot, tree.UtxoRoot)
+	transaction.AssertEqualWhen(api, notDummy, stateRoot, tree.UtxoRoot)
 
 	nullifier := abstractor.Call(api, transaction.NullifierGadget{
 		UtxoHash:        utxoHash,
@@ -81,6 +85,7 @@ func constrainInput(
 		MergeDummyNullifier(api, ctx.NullifierSecret, ctx.FirstNullifier, slotIndex),
 		nullifier,
 	)
+	nullifier = api.Select(isCompact, frontend.Variable(0), nullifier)
 
 	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
 	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
@@ -93,17 +98,13 @@ func constrainInput(
 		Height: transaction.NullifierTreeHeight,
 	})
 
-	api.AssertIsEqual(nfRoot, tree.NullifierRoot)
-	abstractor.CallVoid(api, transaction.AssertStrictlyOrdered{
-		Lo:  in.NullifierLowValue,
-		Mid: nullifier,
-		Hi:  in.NullifierNextValue,
+	transaction.AssertEqualWhen(api, notCompact, nfRoot, tree.NullifierRoot)
+	abstractor.CallVoid(api, transaction.AssertStrictlyOrderedWhen{
+		Cond: notCompact,
+		Lo:   in.NullifierLowValue,
+		Mid:  nullifier,
+		Hi:   in.NullifierNextValue,
 	})
 
 	return api.Select(isDummy, frontend.Variable(0), utxoHash), nullifier
-}
-
-// assertEqualWhen constrains a == b only when cond == 1.
-func assertEqualWhen(api frontend.API, cond, a, b frontend.Variable) {
-	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: cond, A: a, B: b})
 }

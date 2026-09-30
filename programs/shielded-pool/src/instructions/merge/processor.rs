@@ -44,6 +44,14 @@ pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> Progra
         "input nullifier",
         ShieldedPoolError::NonCanonicalInputNullifier,
     )?;
+    // Zero marks compact padding, which the instruction never carries.
+    if ix
+        .nullifiers
+        .iter()
+        .any(|nullifier| *nullifier == [0u8; 32])
+    {
+        return Err(ShieldedPoolError::ZeroInputNullifier.into());
+    }
     check_field_element(
         ix.output_utxo_hash,
         "output utxo hash",

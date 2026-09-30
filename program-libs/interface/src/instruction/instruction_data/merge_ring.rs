@@ -43,7 +43,7 @@ impl<'a> MergeRingIxDataRef<'a> {
 mod tests {
     use super::*;
     use crate::instruction::instruction_data::merge_transact::{
-        MergeProof, MERGE_DEFAULT_INPUT_COUNT,
+        MergeCircuit, MergeProof, MERGE_DEFAULT_INPUT_COUNT,
     };
 
     fn data() -> MergeRingIxData {
@@ -58,6 +58,7 @@ mod tests {
                     c: [3u8; 32],
                 },
                 output_utxo_hash: [1u8; 32],
+                circuit: MergeCircuit::Inputs8,
                 nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT as u8)
                     .map(|i| [i; 32])
                     .collect(),

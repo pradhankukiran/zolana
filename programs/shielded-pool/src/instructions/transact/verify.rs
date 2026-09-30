@@ -7,7 +7,7 @@ use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use tinyvec::ArrayVec;
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_4, create_hash_chain_4_from_slice},
+    hash_chain::create_hash_chain_4_from_slice,
     primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
     sha256::Sha256,
     Hasher, Poseidon,
@@ -19,7 +19,9 @@ use zolana_interface::{
         TransactIxDataRef,
     },
     shape::Shape,
-    state::cache::{cached_input_fields, empty_cached_input_fields, CacheAccount},
+    state::cache::{
+        cached_input_fields, empty_cached_input_fields, padded_right_hash_chain_4, CacheAccount,
+    },
     tree_slot::{populated_tree_slots_hash_chain, tree_id_field, TreeSlot},
     verifying_keys::OutputOwnerMode,
     INPUT_TREES, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
@@ -221,7 +223,7 @@ impl TransactProofInputs {
             selection.read_bitmap,
             u16::from_le_bytes(cache_account.tree_id),
             &cache_account.utxo_hashes,
-            ix.inputs.len(),
+            usize::from(ix.circuit.num_inputs()),
         )?);
         self.assignments |= ASSIGNED_CACHED_INPUTS;
         Ok(())
@@ -459,10 +461,16 @@ impl<'a> TransactProof<'a> {
             .get(..n_public_asset_slots)
             .ok_or(shape)?;
 
-        let nullifier_chain =
-            create_hash_chain_4(self.ix.inputs.iter().map(|input| &input.nullifier_hash))?;
-        let output_chain =
-            create_hash_chain_4(self.ix.outputs.iter().map(|output| output.utxo_hash))?;
+        // The instruction carries only the leading slots; the circuit folds the
+        // compact padding suffix as zeros.
+        let nullifier_chain = padded_right_hash_chain_4(
+            self.ix.inputs.iter().map(|input| &input.nullifier_hash),
+            n_in,
+        )?;
+        let output_chain = padded_right_hash_chain_4(
+            self.ix.outputs.iter().map(|output| output.utxo_hash),
+            n_out,
+        )?;
         let mut fields: ArrayVec<[[u8; 32]; 20]> = ArrayVec::new();
         // The circuit's `TreeSlotsHashChain` over the populated slots followed
         // by zeroed ones: each populated slot hash folded onto the precomputed
@@ -501,7 +509,7 @@ impl<'a> TransactProof<'a> {
             self.derived.input_flags,
         ]);
         if self.ix.circuit.output_owner_mode() != OutputOwnerMode::None {
-            fields.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
+            fields.push(padded_right_hash_chain_4(output_owner_pk_hashes, n_out)?);
             // Every owner-signed circuit hashes the cache selection, so a spend
             // that uses no cache publishes an empty one rather than omitting it.
             // Ring authority binds none and never reaches here.
