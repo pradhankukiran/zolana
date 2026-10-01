@@ -288,8 +288,14 @@ impl PaddedMerge {
             .first()
             .expect("real input")
             .nullifier;
-        // Explicit larger shapes exercise every supported verifier with real padding.
-        for slot in transaction.input_utxos.len()..input_count {
+        // Explicit larger shapes exercise every supported verifier with real
+        // padding. A compact merge's width follows from its real count instead.
+        let padded_count = if compact {
+            transaction.input_utxos.len()
+        } else {
+            input_count
+        };
+        for slot in transaction.input_utxos.len()..padded_count {
             let mut dummy =
                 zolana_transaction::utxo::SppProofInputUtxo::dummy(tree_id).expect("dummy");
             dummy.nullifier = merge_dummy_nullifier(&nullifier_key, &first_nullifier, slot as u8)

@@ -628,6 +628,26 @@ pub fn dummy_input(
     Ok((input, nullifier))
 }
 
+/// One compact padding input: nullifier 0 and the zero witness, which the
+/// circuit ignores for that slot. The instruction leaves it out.
+pub fn compact_input(tree_id: u16) -> Result<TransferInput> {
+    let zero = [0u8; 32];
+    Ok(TransferInput {
+        utxo: ProofInputUtxo::try_from(&SppProofInputUtxo::compact(tree_id)?)?,
+        is_dummy: be(&fe(1)),
+        state_path_elements: vec![be(&zero); STATE_TREE_HEIGHT],
+        state_path_index: be(&zero),
+        nullifier_low_value: be(&zero),
+        nullifier_next_value: be(&zero),
+        nullifier_low_path_elements: vec![be(&zero); NULLIFIER_TREE_HEIGHT],
+        nullifier_low_path_index: be(&zero),
+        tree_slot: BigUint::ZERO,
+        nullifier: be(&zero),
+        owner_pk_hash: be(&zero),
+        nullifier_secret: Some(be(&zero)),
+    })
+}
+
 /// The nullifier a dummy input over `blinding` derives (over the dummified utxo
 /// hash with secret 0, under `tree_id`). Callers fetch this value's
 /// non-inclusion proof before building the input with [`dummy_input_with_proof`].
