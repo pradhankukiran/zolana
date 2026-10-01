@@ -6,9 +6,9 @@ SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
 available. Merges take up to 36 notes in one transaction, wallet sync
 recovers the output of such a merge, and transfers and merges can leave their
-unused slots out of the transaction at the cost of revealing the real counts. The private transaction hash ignores
-padding and no longer covers the external data, which P-256 owners now sign
-alongside it.
+unused slots out of the transaction at the cost of revealing the real counts.
+The private transaction hash ignores padding and no longer covers the external
+data, which P-256 owners now sign alongside it.
 
 Breaking
 
@@ -54,8 +54,9 @@ Breaking
 - `TransactionErrorCode` gains `TRANSACTION_CACHED_OUTPUT_WITHOUT_WRITE_CACHE`,
   `TRANSACTION_DUPLICATE_CACHE_WRITE_SLOT` and `TRANSACTION_UNUSED_WRITE_CACHE`,
   which `SppProofInputs.messageHash()` throws for a cache write the program
-  would reject, and `TRANSACTION_SLOT_AFTER_COMPACT_PADDING`, which
-  `SppProofInputs` throws for a slot after compact padding, and
+  would reject → handle them in exhaustive switches.
+- `TransactionErrorCode` gains `TRANSACTION_SLOT_AFTER_COMPACT_PADDING`, which
+  `SppProofInputs.checkShape()` throws for a slot after compact padding, and
   `ShieldedPoolError` gains `ZeroInputNullifier` and `ZeroOutputUtxoHash` →
   handle them in exhaustive switches.
 - `PROVING_KEY_SHA256S` pins rotated transfer, merge and custom ring policy
@@ -95,8 +96,9 @@ Added
   `Merge.fromKeypair`, and `ProofInputUtxo.compact` pad unused slots with
   compact padding, which the transaction leaves out and which costs no nullifier
   account, queue entry or tree leaf but reveals the real input and output
-  counts, and `encodeMergeTransactInstructionData` accepts from one to
-  `MAX_MERGE_INPUTS` nullifiers.
+  counts.
+- `encodeMergeTransactInstructionData` accepts from one to `MAX_MERGE_INPUTS`
+  nullifiers, the count a compact merge sends.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
   `MAX_MERGE_INPUTS` (36) notes in one transaction, padded to the 36-input
   proof above eight, and `buildRingMergeTransaction` and
