@@ -208,7 +208,45 @@ fn compact_merge_pads_with_compact_slots() {
             .skip(notes.len())
             .all(SppProofInputUtxo::is_compact));
         assert!(result.dummy_nullifiers().is_empty());
+        result.check_padding().expect("compact merge padding");
     }
+}
+
+/// SPP fills compact padding back in at the end and picks the circuit from the
+/// sent count, so a merge with compact padding elsewhere or at another width
+/// is refused before proving.
+#[test]
+fn merge_padding_must_match_what_spp_fills_back_in() {
+    let owner = keypair(7);
+    let compact = MergeTransaction::new_compact(inputs(&owner, 3))
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    let tree_id = compact.input_utxos.first().unwrap().tree_id;
+
+    let mut dummy_after_compact = compact.clone();
+    *dummy_after_compact.input_utxos.get_mut(4).unwrap() =
+        SppProofInputUtxo::dummy(tree_id).unwrap();
+    assert!(matches!(
+        dummy_after_compact.check_padding(),
+        Err(TransactionError::InputAfterCompactPadding { index: 4 })
+    ));
+
+    let mut too_wide = compact;
+    too_wide
+        .input_utxos
+        .resize(36, SppProofInputUtxo::compact(tree_id).unwrap());
+    assert!(matches!(
+        too_wide.check_padding(),
+        Err(TransactionError::CompactMergeWidthMismatch { sent: 3, width: 36 })
+    ));
+
+    MergeTransaction::new(inputs(&owner, 3))
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap()
+        .check_padding()
+        .expect("deterministic dummies fill the circuit");
 }
 
 #[test]

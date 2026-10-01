@@ -67,14 +67,8 @@ impl IndexedTransferPreparation {
         authority: &dyn ProofAuthority,
         allow_dummy_inputs: bool,
     ) -> Result<PreparedIndexedTransfer, ClientError> {
-        let Self {
-            mut transaction,
-            rail,
-        } = self;
-        // A tree near its nullifier capacity rejects random dummy inputs, so pad
-        // those slots with compact padding, which inserts nothing.
+        let Self { transaction, rail } = self;
         if !allow_dummy_inputs {
-            transaction.compact_input_padding()?;
             if let Some(index) = transaction
                 .input_utxos
                 .iter()
@@ -136,8 +130,10 @@ impl IndexedTransferPreparation {
         let mut indexes = Vec::new();
         for input in &transaction.input_utxos {
             // Inputs from different trees may interleave; a dummy joins the
-            // tree it names, which a real input must already have opened.
+            // tree it names, which a real input must already have opened. SPP
+            // never receives compact padding and packs tree index 0 for it.
             let position = match trees.iter().position(|tree| tree.id == input.tree_id) {
+                _ if input.is_compact() => 0,
                 Some(position) => position,
                 None => {
                     if input.is_dummy() {

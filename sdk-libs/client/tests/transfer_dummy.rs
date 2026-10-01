@@ -261,7 +261,9 @@ fn eddsa_transfer_all_shapes_proofs_verify() {
 }
 
 /// A (2,3) transfer whose padding is compact: input slot 1 publishes nullifier 0
-/// and needs no nullifier proof, and output slots 1 and 2 publish hash 0.
+/// and needs no nullifier proof, and output slots 1 and 2 publish hash 0. The
+/// compact input names another tree, and still takes tree index 0, which SPP
+/// packs for the slots it never receives.
 #[test]
 fn compact_transfer_2_3_proof_verifies() {
     start_prover();
@@ -273,7 +275,7 @@ fn compact_transfer_2_3_proof_verifies() {
         .confidential_view_tag()
         .expect("real input owner tag");
     let compact_input = TransferInputUtxo {
-        utxo: SppProofInputUtxo::compact(TEST_TREE_ID).unwrap(),
+        utxo: SppProofInputUtxo::compact(TEST_TREE_ID + 5).unwrap(),
         proof: None,
         nullifier_proof: None,
     };
@@ -304,6 +306,11 @@ fn compact_transfer_2_3_proof_verifies() {
 
     let mut result = prover.build().expect("build compact witness");
     assert_eq!(result.nullifiers.get(1), Some(&[0u8; 32]));
+    assert_eq!(result.input_tree_indexes, vec![0, 0]);
+    assert_eq!(
+        result.output_hashes.get(1..),
+        Some([[0u8; 32]; 2].as_slice())
+    );
     complete_inputs(&mut result.inputs.inputs, &[key]);
     let proof = ProverClient::local()
         .prove_transfer(&result.inputs)

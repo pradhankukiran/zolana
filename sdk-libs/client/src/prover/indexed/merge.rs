@@ -78,6 +78,7 @@ impl IndexedMergePreparation {
             nullifier_key,
         } = self;
         merge.input_utxo_hashes()?;
+        merge.check_padding()?;
         let ring_hash =
             zolana_transaction::utxo::program_id_proof_input_hash(&merge.ring_program_id)?;
         let ring_data_hash = merge.output_utxo.ring_data_hash.unwrap_or_default();

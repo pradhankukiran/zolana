@@ -1,7 +1,10 @@
 use zolana_keypair::ShieldedAddress;
 
 use super::{merge_circuit_width, MergeProofInputs, MAX_MERGE_INPUTS};
-use crate::{error::TransactionError, utxo::SppProofInputUtxo, Mint, WalletUtxo};
+use crate::{
+    error::TransactionError, instructions::transact::real_slot_after_dummy,
+    utxo::SppProofInputUtxo, Mint, WalletUtxo,
+};
 
 pub(crate) fn validate_merge_inputs(
     inputs: &[WalletUtxo],
@@ -120,6 +123,27 @@ impl MergeProofInputs {
                 Ok(input_utxo)
             })
             .collect()
+    }
+
+    /// SPP fills compact padding back in at the end and picks the circuit from
+    /// the sent count, so compact padding must come last and a merge carrying
+    /// it must be exactly as wide as its sent inputs select.
+    pub fn check_padding(&self) -> Result<(), TransactionError> {
+        if let Some(index) =
+            real_slot_after_dummy(self.input_utxos.iter().map(SppProofInputUtxo::is_compact))
+        {
+            return Err(TransactionError::InputAfterCompactPadding { index });
+        }
+        let width = self.input_utxos.len();
+        let sent = self
+            .input_utxos
+            .iter()
+            .filter(|input| !input.is_compact())
+            .count();
+        if sent != width && merge_circuit_width(sent) != Some(width) {
+            return Err(TransactionError::CompactMergeWidthMismatch { sent, width });
+        }
+        Ok(())
     }
 
     pub fn dummy_nullifiers(&self) -> Vec<[u8; 32]> {

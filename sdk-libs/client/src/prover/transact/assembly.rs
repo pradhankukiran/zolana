@@ -278,7 +278,7 @@ fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, 
     let trees = InputTrees { trees };
 
     for input_utxo in input_utxos {
-        if !input_utxo.utxo.is_dummy() {
+        if !input_utxo.utxo.is_dummy() || input_utxo.utxo.is_compact() {
             continue;
         }
         let tree_index = trees
@@ -327,15 +327,11 @@ pub(crate) fn assemble_inputs(
     let mut input_tree_indexes = Vec::with_capacity(input_utxos.len());
 
     for (index, input_utxo) in input_utxos.iter().enumerate() {
-        let tree_index = trees
-            .index_of(input_utxo)
-            .ok_or(ClientError::InputTreeUnresolved {
-                tree_id: input_utxo.utxo.tree_id,
-            })?;
-        input_tree_indexes.push(tree_index);
-        // Compact padding publishes nullifier 0 and keeps the zero witness the
-        // circuit ignores for that slot.
+        // Compact padding publishes nullifier 0 and needs no paths, since the
+        // circuit only checks that the slot is a dummy. SPP never receives the
+        // slot and packs tree index 0 for it, whatever tree it names.
         if input_utxo.utxo.is_compact() {
+            input_tree_indexes.push(0);
             inputs.push(TransferInput {
                 utxo: ProofInputUtxo::try_from(&input_utxo.utxo)?,
                 is_dummy: BigUint::from(1u8),
@@ -345,7 +341,7 @@ pub(crate) fn assemble_inputs(
                 nullifier_next_value: BigUint::ZERO,
                 nullifier_low_path_elements: vec![BigUint::ZERO; NULLIFIER_TREE_HEIGHT],
                 nullifier_low_path_index: BigUint::ZERO,
-                tree_slot: BigUint::from(tree_index),
+                tree_slot: BigUint::ZERO,
                 nullifier: BigUint::ZERO,
                 owner_pk_hash: BigUint::ZERO,
                 nullifier_secret: Some(BigUint::ZERO),
@@ -354,6 +350,12 @@ pub(crate) fn assemble_inputs(
             nullifiers.push([0u8; 32]);
             continue;
         }
+        let tree_index = trees
+            .index_of(input_utxo)
+            .ok_or(ClientError::InputTreeUnresolved {
+                tree_id: input_utxo.utxo.tree_id,
+            })?;
+        input_tree_indexes.push(tree_index);
         if input_utxo.utxo.is_dummy() {
             let nf = input_utxo
                 .nullifier_proof

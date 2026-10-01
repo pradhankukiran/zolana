@@ -198,6 +198,8 @@ fn fresh_sync_resolves_merge_dependencies() {
 
 /// A compact merge publishes only its sent nullifiers: the padding slots are
 /// left out of the instruction, so the wallet sees just the first nullifier.
+/// Sync never depended on the merge width, so this guards that it keeps
+/// recovering the output and spending the input from one nullifier.
 #[test]
 fn sync_recovers_a_compact_merge() {
     let assets = AssetRegistry::default();

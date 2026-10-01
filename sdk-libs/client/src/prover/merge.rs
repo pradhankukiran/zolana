@@ -58,6 +58,9 @@ pub struct MergeCacheTarget {
 pub struct MergeProofResult {
     pub inputs: MergeInputs,
     pub public_input_hash: [u8; 32],
+    /// Every circuit slot's nullifier, 0 for compact padding. The instruction
+    /// carries only the sent prefix, so derive nullifier PDAs from
+    /// [`Self::instruction_data`], not from these.
     pub nullifiers: Vec<[u8; 32]>,
     /// Root cache indexes shared by all input slots.
     pub utxo_tree_root_index: u16,
@@ -120,6 +123,7 @@ impl MergeProver {
                 n_out: 1,
             });
         }
+        tx.check_padding()?;
         let first = tx
             .input_utxos
             .first()

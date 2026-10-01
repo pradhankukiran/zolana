@@ -1083,6 +1083,15 @@ fn compact_padding_is_left_out_of_the_instruction() {
     ];
     error(compact_first.check_shape(), E::DummyInFirstInputSlot);
 
+    let mut input_after_compact = proof.clone();
+    input_after_compact
+        .input_utxos
+        .push(SppProofInputUtxo::dummy(7).unwrap());
+    error(
+        input_after_compact.check_shape(),
+        E::InputAfterCompactPadding { index: 2 },
+    );
+
     let mut dummy_after_compact = proof;
     *dummy_after_compact.output_utxos.get_mut(1).unwrap() = SppProofOutputUtxo {
         compact: true,

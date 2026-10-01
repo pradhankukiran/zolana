@@ -128,7 +128,7 @@ impl SppProofInputs {
     }
 }
 
-fn real_slot_after_dummy(mut dummies: impl Iterator<Item = bool>) -> Option<usize> {
+pub(crate) fn real_slot_after_dummy(mut dummies: impl Iterator<Item = bool>) -> Option<usize> {
     let mut padded = false;
     dummies.position(|dummy| {
         padded |= dummy;
