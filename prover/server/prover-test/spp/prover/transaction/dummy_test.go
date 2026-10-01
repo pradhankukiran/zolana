@@ -168,12 +168,19 @@ func solTransferRequest(
 
 func TestSentSlotsDropsOnlyTrailingCompactPadding(t *testing.T) {
 	values := []*big.Int{big.NewInt(5), big.NewInt(0), big.NewInt(7), big.NewInt(0), big.NewInt(0)}
-	if got := sentSlots(values); len(got) != 3 {
-		t.Fatalf("sent slots: got %d want 3", len(got))
+	assertSlots := func(name string, got, want []*big.Int) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s: got %v want %v", name, got, want)
+		}
+		for i := range want {
+			if got[i].Cmp(want[i]) != 0 {
+				t.Fatalf("%s: got %v want %v", name, got, want)
+			}
+		}
 	}
-	if got := sentSlots([]*big.Int{big.NewInt(0)}); len(got) != 0 {
-		t.Fatalf("all-compact slots: got %d want 0", len(got))
-	}
+	assertSlots("sent slots", sentSlots(values), []*big.Int{big.NewInt(5), big.NewInt(0), big.NewInt(7)})
+	assertSlots("all-compact slots", sentSlots([]*big.Int{big.NewInt(0)}), []*big.Int{})
 }
 
 // TestProveShieldWithAllDummyInputs proves a deposit (shield) inside a 1-2 shape

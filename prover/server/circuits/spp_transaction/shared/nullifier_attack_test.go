@@ -71,13 +71,15 @@ func TestDummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 // TestDummyInputRejectsZeroNullifier (INV-TRANSACT-31): slot 0's nullifier seeds
 // the output blindings, so it can never be compact padding. A zero there is
 // rejected even on a dummy; later dummy slots may publish 0 (compact_test.go).
+// The blindings and hashes are rederived from the zero nullifier, so the
+// slot-0 rule is the only rejecting constraint.
 func TestDummyInputRejectsZeroNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Nullifier = spptest.Fe(0)
-	refreshPublicInputHash(t, assignment)
+	refreshNullifierAttackHashes(t, assignment, []*big.Int{spptest.Fe(0)})
 
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

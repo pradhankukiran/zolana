@@ -32,6 +32,19 @@ import (
 // the constraint under test, not the hash binding.
 func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 	t.Helper()
+	refreshPublicInputHash(t, f, f.userSigningPkHash, f.userNullifierPk)
+}
+
+// refreshRingPublicInputHash is refreshDefaultPublicInputHash for the ring rail.
+func refreshRingPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
+	t.Helper()
+	refreshPublicInputHash(t, f, f.outputRingDataHash, f.ringProgramID)
+}
+
+// refreshPublicInputHash hashes the common public columns followed by the
+// rail-specific tail.
+func refreshPublicInputHash(t *testing.T, f *mergeWitnessFixture, tail ...*big.Int) {
+	t.Helper()
 	asBigInts := func(vs []frontend.Variable) []*big.Int {
 		out := make([]*big.Int, len(vs))
 		for i, v := range vs {
@@ -39,7 +52,7 @@ func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 		}
 		return out
 	}
-	f.publicInputHash = hashChain4(t, []*big.Int{
+	f.publicInputHash = hashChain4(t, append([]*big.Int{
 		spptest.MustRightHashChain4(t, asBigInts(f.public.Nullifiers)),
 		f.public.OutputHash.(*big.Int),
 		spptest.MustTreeSlotsHashChain(t, publicTreeSlots(f.public.TreeSlots)),
@@ -47,9 +60,7 @@ func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 		f.public.PrivateTxHash.(*big.Int),
 		f.public.ExternalDataHash.(*big.Int),
 		f.public.AllowDummyInputs.(*big.Int),
-		f.userSigningPkHash,
-		f.userNullifierPk,
-	})
+	}, tail...))
 }
 
 // TestMergeRejectsVictimNullifierInDummySlot (INV-MERGE-16): publishing the first real

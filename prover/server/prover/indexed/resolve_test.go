@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -221,6 +222,53 @@ func TestResolveSkipsCompactPadding(t *testing.T) {
 		if element.Sign() != 0 {
 			t.Fatal("compact padding paths are not zero")
 		}
+	}
+}
+
+// Only a dummy that publishes nullifier 0 is compact padding. A real input
+// that claims 0 is still fetched, and no exclusion range can hold below 0, so
+// even an indexer that answers for leaf 0 cannot make the resolver accept it.
+func TestResolveRejectsRealInputWithZeroNullifier(t *testing.T) {
+	request, state, nullifier := fixture(t)
+	var prepared transfer.TransferParametersJSON
+	if err := json.Unmarshal(request.Prepared, &prepared); err != nil {
+		t.Fatal(err)
+	}
+	prepared.Inputs[0].Nullifier = "0x0"
+	request.Prepared = encoded(t, prepared)
+	nullifier.Proofs[0].Leaf = Hash{}
+	var fetched []Hash
+	resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			Method string      `json:"method"`
+			Params proofParams `json:"params"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		var result any = state
+		if body.Method == "getNonInclusionProofs" {
+			fetched = body.Params.Leaves
+			result = nullifier
+		}
+		data, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": body.Method, "result": result})
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(bytes.NewReader(data))}, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = resolver.Resolve(ctx, encoded(t, request))
+	if err == nil || !strings.Contains(err.Error(), "invalid nullifier exclusion range") {
+		t.Fatalf("got %v, want the exclusion range to reject nullifier 0", err)
+	}
+	if len(fetched) != 2 || fetched[0] != (Hash{}) {
+		t.Fatalf("fetched %v, want the real input's zero nullifier requested, not skipped", fetched)
 	}
 }
 

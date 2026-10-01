@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 	merge "zolana/prover/prover/merge"
 	transfer "zolana/prover/prover/transfer_eddsa_only"
@@ -150,7 +151,7 @@ func decodePrepared(request Request) (*preparedProof, error) {
 		input := &prepared.inputs[index]
 		if input.dummy && input.nullifier.Sign() == 0 {
 			input.disabled = true
-			input.apply(nil, nullifierProof{Path: make([]Hash, 40)})
+			input.apply(nil, nullifierProof{Path: make([]Hash, shared.NullifierTreeHeight)})
 		}
 	}
 	return &prepared, nil

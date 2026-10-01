@@ -59,6 +59,34 @@ func TestCompactInputPaddingSolves(t *testing.T) {
 	}
 }
 
+func TestCompactInputPaddingSolvesOnDefaultRing(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	assignment := buildDefaultRingEddsaOnlyAssignment(t, shape)
+	padWithCompactInputs(t, assignment)
+	refreshDefaultRingPublicInputHash(t, assignment)
+	assert.SolvingSucceeded(
+		MustNewDefaultRingEddsaOnlyCircuit(Shape(shape)),
+		asDefaultRingEddsaOnly(assignment),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+func TestCompactInputPaddingSolvesOnP256(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	assignment := buildCircuitAssignment(t, shape)
+	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256(t, assignment, 0, owner)
+	padWithCompactInputs(t, assignment)
+	authorization := authorizeP256(t, assignment, owner, owner)
+	assert.SolvingSucceeded(
+		MustNewCustomRingP256Circuit(Shape(shape)),
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
 // Compact padding inserts no nullifier, so the tree-capacity gate that forbids
 // random dummies does not apply to it.
 func TestCompactInputPaddingSolvesWhenDummyInputsDisallowed(t *testing.T) {
@@ -185,16 +213,18 @@ func TestCompactOutputRejectsNonzeroTag(t *testing.T) {
 	)
 }
 
-// A real output that publishes hash 0 would skip its tree append.
+// A real output that publishes hash 0 would skip its tree append. The ring
+// authority rail binds no output owner tags, and the private tx hash takes the
+// computed output hash, so the compact-output dummy rule is the only rejecting
+// constraint here.
 func TestCompactHashRejectedOnRealOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	assignment := dummyOutputAssignment(t, shape)
-	assignment.Outputs[0].Hash = spptest.Fe(0)
-	refreshDummyOutputHashes(t, assignment)
-	assert.SolvingFailed(
-		MustNewDefaultRingEddsaOnlyCircuit(Shape(shape)),
-		asDefaultRingEddsaOnly(assignment),
-		test.WithCurves(ecc.BN254),
-	)
+	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	assignment := buildRingAuthorityAssignment(t, shape)
+	assert.SolvingSucceeded(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
+
+	assignment.Outputs[1].Hash = spptest.Fe(0)
+	refreshRingAuthorityPublicInputHash(t, assignment)
+	assert.SolvingFailed(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
 }

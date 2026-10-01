@@ -128,8 +128,9 @@ func buildInputWitnesses(
 		}
 		// A dummy derives its nullifier over the dummified utxo hash with
 		// nullifier_secret = 0; the blinding is its sole source of
-		// unpredictability. The circuit checks non-inclusion for every slot,
-		// dummies included, so the dummy carries a real low-element witness.
+		// unpredictability. The circuit checks non-inclusion for every slot
+		// except compact padding, so a random dummy carries a real
+		// low-element witness.
 		nullifier, err := protocol.Nullifier(utxoHash, blinding, big.NewInt(0))
 		if err != nil {
 			return inputWitnesses{}, fmt.Errorf("dummy input %d nullifier: %w", i, err)
