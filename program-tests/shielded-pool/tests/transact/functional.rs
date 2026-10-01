@@ -28,7 +28,10 @@ use zolana_client::{
 };
 use zolana_hasher::Poseidon;
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{
+        create_hash_chain_4_from_slice, create_right_hash_chain_4_from_slice,
+        create_right_hash_chain_from_slice,
+    },
     primitives::{hash_bytes, solana_owner_identity},
 };
 use zolana_interface::{
@@ -503,8 +506,8 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     }
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let mut chain = vec![
-        create_hash_chain_4_from_slice(&nullifiers).expect("nullifier chain"),
-        create_hash_chain_4_from_slice(&output_hashes).expect("output chain"),
+        create_right_hash_chain_4_from_slice(&nullifiers).expect("nullifier chain"),
+        create_right_hash_chain_4_from_slice(&output_hashes).expect("output chain"),
         tree_slots_hash_chain(&tree_slots).expect("tree slot chain"),
         tree_id_field(tree_id),
         private_tx,
@@ -523,7 +526,9 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         chain.push(ring_field);
         chain.push(create_right_hash_chain_from_slice(&signer_hashes).expect("signer hash chain"));
         chain.push(fe(1));
-        chain.push(create_hash_chain_4_from_slice(&published_owners).expect("output owner chain"));
+        chain.push(
+            create_right_hash_chain_4_from_slice(&published_owners).expect("output owner chain"),
+        );
         // The ring rail publishes a cache selection; this spend uses no cache.
         chain.extend_from_slice(
             &empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
@@ -759,6 +764,202 @@ fn transact_sends_valid_proof() {
 /// output-owner chain) must be rejected: the program reconstructs the owner tags
 /// from the instruction's outputs and the resulting public input no longer
 /// matches the proof.
+/// One zero-value deposit spent through the SDK in the 2x3 shape, padded with
+/// compact padding when `compact` is set and with random dummies otherwise.
+fn single_deposit_spend(
+    env: &mut Pool,
+    compact: bool,
+) -> (
+    zolana_keypair::ShieldedKeypair,
+    zolana_transaction::instructions::transact::SppProofInputs,
+    zolana_client::SpendProof,
+) {
+    use shielded_pool_tests::support::merge::ZeroDeposits;
+    use zolana_client::{MerkleContext, MerkleProof, NonInclusionProof, SpendProof};
+    use zolana_keypair::{ShieldedKeypair, ShieldedKeypairTrait};
+    use zolana_transaction::instructions::transact::ConfidentialTransaction;
+
+    let payer = env.rpc.payer.insecure_clone();
+    let (tree, tree_id) = (env.tree, env.tree_id);
+    let keypair = ShieldedKeypair::from_keypair(&payer).expect("shielded keypair");
+    let nullifier_key = keypair.nullifier_key();
+    let deposits = ZeroDeposits {
+        rpc: &mut env.rpc,
+        tree,
+        depositor: &payer,
+        owner: keypair.signing_pubkey(),
+        nullifier_key: &nullifier_key,
+        tree_id,
+        count: 1,
+    }
+    .deposit();
+    let deposit = deposits.deposits.first().expect("one deposit");
+    let note = zolana_test_utils::utxo::wallet(
+        deposit.utxo.clone(),
+        &nullifier_key,
+        tree_id,
+        deposit.leaf_index,
+        None,
+        None,
+    )
+    .expect("wallet utxo");
+    let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
+    let transfer = if compact {
+        ConfidentialTransaction::new_compact(vec![note], payer_address)
+    } else {
+        ConfidentialTransaction::new(vec![note], payer_address)
+    };
+    let mut transfer = transfer
+        .expect("transfer")
+        .with_output_tree_id(tree_id)
+        .expect("output tree");
+    transfer
+        .pad_utxos(
+            Shape::IN2_OUT3,
+            &keypair.shielded_address().expect("address"),
+        )
+        .expect("pad to 2x3");
+    let proof_inputs = transfer.encrypt(&keypair).expect("encrypt");
+
+    let merkle_context = MerkleContext {
+        tree_type: 0,
+        tree: Address::new_from_array(tree.to_bytes()),
+    };
+    let spend = SpendProof {
+        state: MerkleProof {
+            leaf: deposit.utxo_hash,
+            merkle_context: merkle_context.clone(),
+            path: deposit.state_path.clone(),
+            leaf_index: deposit.leaf_index,
+            root: deposits.utxo_root,
+            root_seq: 0,
+            root_index: deposits.utxo_root_index,
+        },
+        nullifier: NonInclusionProof {
+            leaf: deposit.nullifier,
+            merkle_context,
+            path: deposit.non_inclusion.merkle_proof.to_vec(),
+            low_element: deposit.non_inclusion.leaf_lower_range_value,
+            low_element_index: deposit.non_inclusion.leaf_index as u64,
+            high_element: deposit.non_inclusion.leaf_higher_range_value,
+            high_element_index: 0,
+            root: deposits.nullifier_root,
+            root_seq: 0,
+            root_index: 0,
+        },
+    };
+    (keypair, proof_inputs, spend)
+}
+
+/// Prove an assembled spend, send it, and return the sent nullifiers and output
+/// count.
+fn send_assembled_spend(
+    env: &mut Pool,
+    keypair: &zolana_keypair::ShieldedKeypair,
+    mut assembled: zolana_client::AssembledTransfer,
+) -> (Vec<[u8; 32]>, usize) {
+    use zolana_client::ProofAuthority;
+    let proof = keypair
+        .prove_transfer(&ProverClient::local(), &mut assembled.prover_inputs)
+        .expect("prove transfer");
+    let data = assembled
+        .with_proof(zolana_test_utils::transact::pack_transact_proof(&proof).expect("pack proof"));
+    let nullifiers = data
+        .inputs
+        .iter()
+        .map(|input| input.nullifier_hash)
+        .collect();
+    let output_count = data.outputs.len();
+    let ix = Transact {
+        payer: env.rpc.payer.pubkey(),
+        input_trees: vec![env.tree],
+        output_tree: env.tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data,
+    }
+    .instruction();
+    env.rpc
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(1_400_000),
+        )
+        .expect("transact with a valid proof");
+    (nullifiers, output_count)
+}
+
+/// Compact padding: one real input in the 2x3 shape. Input slot 1 and the unused
+/// outputs are left out of the instruction, so SPP queues one nullifier, creates
+/// one nullifier PDA and appends only the sent output.
+#[test]
+fn transact_with_compact_padding_spends_and_appends_only_the_sent_slots() {
+    let mut env = proof_env();
+    let tree = env.tree;
+    let (keypair, proof_inputs, spend) = single_deposit_spend(&mut env, true);
+    let assembled = zolana_client::assemble(proof_inputs, &[spend], &[]).expect("assemble");
+    let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
+    let (nullifiers, output_count) = send_assembled_spend(&mut env, &keypair, assembled);
+    assert_eq!((nullifiers.len(), output_count), (1, 1));
+    assert_eq!(
+        tree_progress(&env.rpc, &tree),
+        (utxo_next_before + 1, nullifier_next_before + 1),
+        "one output appended and one nullifier queued"
+    );
+    assert_eq!(
+        zolana_test_utils::nullifier_pda::assert_nullifier_pdas(&env.rpc, &tree, &nullifiers)
+            .expect("nullifier PDA")
+            .len(),
+        1
+    );
+}
+
+/// INV-TRANSACT-33: once a spend would leave the nullifier tree too little room
+/// for random dummy inputs, SPP publishes `allow_dummy_inputs = false`. Compact
+/// padding inserts nothing, so a spend padded with it still lands.
+#[test]
+fn transact_past_the_dummy_threshold_pads_with_compact_inputs() {
+    let mut env = proof_env();
+    let tree = env.tree;
+    let (keypair, mut proof_inputs, spend) = single_deposit_spend(&mut env, false);
+    let mut account = env.rpc.svm.get_account(&tree).expect("tree account");
+    {
+        let mut on_chain =
+            TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
+        // Leave no headroom past the one real spend.
+        let required_capacity = on_chain.utxo_tree().capacity() + 1;
+        let nullifier = on_chain.nullifier_tree();
+        let next_leaf = nullifier
+            .capacity
+            .checked_sub(required_capacity)
+            .expect("nullifier capacity exceeds state capacity")
+            + 1;
+        nullifier
+            .get_current_batch_mut()
+            .expect("current nullifier batch")
+            .start_index = next_leaf;
+        nullifier.queue_next_index = next_leaf;
+        assert_eq!(
+            on_chain
+                .dummy_input_headroom()
+                .expect("dummy-input headroom"),
+            0
+        );
+    }
+    env.rpc
+        .svm
+        .set_account(tree, account)
+        .expect("write threshold tree account");
+
+    proof_inputs
+        .compact_input_padding()
+        .expect("compact input padding");
+    let assembled = zolana_client::assemble_with_dummy_policy(proof_inputs, &[spend], &[], false)
+        .expect("assemble without dummy inputs");
+    let (nullifiers, _) = send_assembled_spend(&mut env, &keypair, assembled);
+    assert_eq!(nullifiers.len(), 1);
+}
+
 #[test]
 fn transact_rejects_tampered_output_owner_tag() {
     let mut env = proof_env();

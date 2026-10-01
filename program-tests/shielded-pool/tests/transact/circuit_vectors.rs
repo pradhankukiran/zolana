@@ -19,7 +19,10 @@ use shielded_pool_program::testing::{
     amount_field, solana_owner_identity, TransactProof, TransactProofInputs,
 };
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{
+        create_hash_chain_4_from_slice, create_right_hash_chain_4_from_slice,
+        create_right_hash_chain_from_slice,
+    },
     primitives::hash_bytes,
 };
 use zolana_interface::{
@@ -136,8 +139,8 @@ struct GoAssembly<'a> {
 impl GoAssembly<'_> {
     fn hash(&self) -> [u8; 32] {
         let mut fields = vec![
-            create_hash_chain_4_from_slice(self.nullifiers).expect("nullifier chain"),
-            create_hash_chain_4_from_slice(self.output_hashes).expect("output chain"),
+            create_right_hash_chain_4_from_slice(self.nullifiers).expect("nullifier chain"),
+            create_right_hash_chain_4_from_slice(self.output_hashes).expect("output chain"),
             tree_slots_hash_chain(self.tree_slots).expect("tree slot chain"),
             self.output_tree_id,
             self.private_tx_hash,
@@ -158,7 +161,8 @@ impl GoAssembly<'_> {
         ]);
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
             fields.push(
-                create_hash_chain_4_from_slice(output_owner_pk_hashes).expect("output owner chain"),
+                create_right_hash_chain_4_from_slice(output_owner_pk_hashes)
+                    .expect("output owner chain"),
             );
             fields.extend_from_slice(
                 &self

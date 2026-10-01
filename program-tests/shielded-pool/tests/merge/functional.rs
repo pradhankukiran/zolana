@@ -29,6 +29,46 @@ fn merge_cu_ceiling(input_count: usize) -> u64 {
     }
 }
 
+/// Compact padding fills the merge circuit past the real inputs and is left out
+/// of the instruction: SPP queues and creates nullifier PDAs only for the real
+/// inputs, and the width follows from their count.
+#[test]
+fn merge_with_compact_padding_spends_only_the_real_inputs() {
+    for (input_count, real_input_count) in [(MERGE_DEFAULT_INPUT_COUNT, 3), (MAX_MERGE_INPUTS, 9)] {
+        let mut pool = proof_env();
+        let tree = pool.tree;
+        let merge = RealMergeProof {
+            input_count,
+            real_input_count,
+        }
+        .build_compact(&mut pool);
+        assert_eq!(merge.data.nullifiers.len(), real_input_count);
+        let ix = merge.instruction(&pool);
+        let (utxo_next_before, nullifier_next_before) = tree_progress(&pool.rpc, &tree);
+        pool.rpc
+            .create_and_send_default_payer_transaction_with_budget(
+                &[ix],
+                &[],
+                ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+            )
+            .expect("compact merge with a valid proof");
+        assert_eq!(
+            tree_progress(&pool.rpc, &tree),
+            (
+                utxo_next_before + 1,
+                nullifier_next_before + real_input_count as u64
+            ),
+            "one output appended and one nullifier queued per real input"
+        );
+        assert_eq!(
+            assert_nullifier_pdas(&pool.rpc, &tree, &merge.data.nullifiers)
+                .expect("real nullifier PDAs")
+                .len(),
+            real_input_count
+        );
+    }
+}
+
 fn merge_at_input_count(input_count: usize, real_input_count: usize) {
     let mut pool = proof_env();
     let payer_pk = pool.rpc.payer.pubkey();
