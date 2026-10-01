@@ -11,12 +11,14 @@ export async function prepareMerge(
     invalidAnswers(): Error;
     outputTreeId?: number;
     ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
+    /** Pads with compact padding, which needs no derived dummy nullifiers. */
+    compact?: boolean;
   }>,
   context?: RequestContext,
 ): Promise<PreparedMerge> {
   const firstNullifier = input.inputs[0]?.nullifier();
   if (firstNullifier === undefined) throw input.invalidAnswers();
-  const slots = PreparedMerge.dummySlots(input.inputs.length);
+  const slots = input.compact === true ? [] : PreparedMerge.dummySlots(input.inputs.length);
   const answers = await input.keys.derive(
     [
       { kind: "mergeOutputBlinding", firstNullifier },
@@ -43,5 +45,6 @@ export async function prepareMerge(
     dummyNullifiers,
     ...(input.outputTreeId === undefined ? {} : { outputTreeId: input.outputTreeId }),
     ...(input.ring === undefined ? {} : { ring: input.ring }),
+    ...(input.compact === true ? { compact: true } : {}),
   }).prepare();
 }

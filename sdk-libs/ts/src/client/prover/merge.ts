@@ -31,10 +31,11 @@ import {
   bytesToBigInt,
   checkedBytes,
   field,
-  hashChain4,
+  rightHashChain4,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import {
+  createCompactTransferInput,
   createDummyTransferInput,
   createOutput,
   createRealInput,
@@ -154,6 +155,10 @@ function assembleMergeUnchecked(
   let proofIndex = 0;
   let dummyIndex = 0;
   for (const [index, input] of prepared.inputs.entries()) {
+    if (input.isCompact()) {
+      inputs.push(createCompactTransferInput(input, 0));
+      continue;
+    }
     if (input.isDummy()) {
       if (inputTree === undefined) throw new ClientError("CLIENT_NO_INPUTS");
       const nullifier = dummyNullifiers[dummyIndex];
@@ -274,7 +279,11 @@ export function prepareMerge(
   const dummyNullifiers = prepared.dummyNullifiers();
   let dummyIndex = 0;
   const inputs = prepared.inputs.map((input) => {
-    const nullifier = input.isDummy() ? dummyNullifiers[dummyIndex++] : input.nullifier();
+    const nullifier = input.isCompact()
+      ? input.nullifier()
+      : input.isDummy()
+        ? dummyNullifiers[dummyIndex++]
+        : input.nullifier();
     if (nullifier === undefined) throw new ClientError("CLIENT_INVALID_MERGE");
     const owner =
       input.isDummy() || input.utxo.owner.signatureType() === "p256"
@@ -318,7 +327,7 @@ export function prepareMerge(
   );
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
   const publicInputs = [
-    hashChain4(nullifiers.map(bytesToBigInt)),
+    rightHashChain4(nullifiers.map(bytesToBigInt)),
     bytesToBigInt(outputHash),
     outputTreeIdField,
     bytesToBigInt(privateTxHash),
@@ -372,8 +381,11 @@ export function prepareMerge(
           outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
           eddsaOwner,
           privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
+          // The trailing compact padding is left out; SPP fills it back in.
           nullifiers: Object.freeze(
-            nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
+            nullifiers
+              .filter((_nullifier, index) => !prepared.inputs[index]?.isCompact())
+              .map((nullifier) => new Uint8Array(nullifier) as Bytes32),
           ),
           utxoTreeRootIndex,
           nullifierTreeRootIndex,

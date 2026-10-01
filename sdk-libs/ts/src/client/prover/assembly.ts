@@ -67,6 +67,7 @@ import {
   inputFlags,
   poseidon,
   rightHashChain,
+  rightHashChain4,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import { RING_INPUT_SLOTS, RING_OUTPUT_SLOTS } from "./types.js";
@@ -347,17 +348,20 @@ function prepareTransferUnchecked(
     txViewingPk: proofInputs.externalData.txViewingPublicKey.toBytes(),
     salt: new Uint8Array(proofInputs.externalData.salt) as never,
     proof: ZERO_PROOF,
+    // The trailing compact padding is left out; SPP fills it back in.
     inputs: Object.freeze(
-      proofInputs.inputUtxos.map((_input, index) => {
-        const nullifier = nullifiers[index];
-        const treeIndex = treeIndexes[index];
-        if (!nullifier || treeIndex === undefined) {
-          throw new ClientError("CLIENT_PROOF_INPUT_COUNT_MISMATCH", {
-            details: { got: nullifiers.length, expected: proofInputs.inputUtxos.length },
-          });
-        }
-        return Object.freeze({ nullifierHash: nullifier, treeIndex });
-      }),
+      proofInputs.inputUtxos
+        .map((_input, index) => {
+          const nullifier = nullifiers[index];
+          const treeIndex = treeIndexes[index];
+          if (!nullifier || treeIndex === undefined) {
+            throw new ClientError("CLIENT_PROOF_INPUT_COUNT_MISMATCH", {
+              details: { got: nullifiers.length, expected: proofInputs.inputUtxos.length },
+            });
+          }
+          return Object.freeze({ nullifierHash: nullifier, treeIndex });
+        })
+        .filter((_input, index) => !proofInputs.inputUtxos[index]?.isCompact()),
     ),
     interfaceTransfers: Object.freeze(
       proofInputs.externalData.interfaceTransfers.map((transfer) =>
@@ -743,6 +747,14 @@ export function assembleSlots(
       if (openRun === undefined) {
         throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", { details: { index } });
       }
+      if (input.isCompact()) {
+        const converted = createCompactTransferInput(input, openIndex);
+        transferInputs.push(converted);
+        nullifiers.push(new Uint8Array(32) as Bytes32);
+        inputOwnerFields.push(converted.ownerPublicKeyHash);
+        treeIndexes.push(openIndex);
+        continue;
+      }
       const proof = dummyNullifierProofs[dummyProofIndex++];
       if (!proof) {
         throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
@@ -991,10 +1003,15 @@ interface TransferPublicInputFields extends CachedInputs {
   publishedOutputOwnerPublicKeyHashes: readonly bigint[] | undefined;
 }
 
+/**
+ * The nullifier, output and output owner chains fold to the right over the
+ * circuit width; compact padding contributes zeros, and a published owner
+ * vector shorter than the outputs is padded with them.
+ */
 export function transferPublicInputs(input: TransferPublicInputFields): readonly bigint[] {
   return [
-    hashChain4(input.nullifiers),
-    hashChain4(input.outputHashes),
+    rightHashChain4(input.nullifiers),
+    rightHashChain4(input.outputHashes),
     bytesToBigInt(treeIdField(input.outputTreeId)),
     input.privateTxHash,
     input.externalDataHash,
@@ -1005,7 +1022,15 @@ export function transferPublicInputs(input: TransferPublicInputFields): readonly
     ...(input.publishedOutputOwnerPublicKeyHashes === undefined
       ? []
       : [
-          hashChain4(input.publishedOutputOwnerPublicKeyHashes),
+          rightHashChain4([
+            ...input.publishedOutputOwnerPublicKeyHashes,
+            ...Array<bigint>(
+              Math.max(
+                input.outputHashes.length - input.publishedOutputOwnerPublicKeyHashes.length,
+                0,
+              ),
+            ).fill(0n),
+          ]),
           input.cacheTreeId,
           input.cacheReadHashChain,
         ]),
@@ -1147,6 +1172,24 @@ function spendInput(
   });
 }
 
+/**
+ * Compact padding publishes nullifier 0 and needs no nullifier proof: it keeps
+ * the zero witness the circuit ignores for that slot.
+ */
+export function createCompactTransferInput(input: ProofInputUtxo, treeSlot: number): TransferInput {
+  return Object.freeze({
+    ...prepareInput(input, { owner: 0n, treeSlot }),
+    statePathElements: Object.freeze(Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n))),
+    statePathIndex: asField(0n),
+    nullifierLowValue: asField(0n),
+    nullifierNextValue: asField(0n),
+    nullifierLowPathElements: Object.freeze(
+      Array.from({ length: NULLIFIER_TREE_HEIGHT }, () => asField(0n)),
+    ),
+    nullifierLowPathIndex: asField(0n),
+  });
+}
+
 export function createDummyTransferInput(
   input: ProofInputUtxo,
   proof: NonInclusionProof,
@@ -1162,12 +1205,15 @@ export function createDummyTransferInput(
  * participant the pad names.
  */
 export function createOutput(output: ProofOutputUtxo, outputTreeId: TreeId): TransferOutput {
+  // Compact padding publishes owner tag 0; no identity folds to 0.
   const ownerPublicKeyHash = output.ownerAddress
     ? bytesField(
         output.ownerAddress.signingPublicKey.ownerProofInputHash(),
         "output owner public key",
       )
-    : bytesToBigInt(solanaOwnerIdentity(output.ownerTag ?? new Uint8Array(32)));
+    : output.isCompact()
+      ? 0n
+      : bytesToBigInt(solanaOwnerIdentity(output.ownerTag ?? new Uint8Array(32)));
   return Object.freeze({
     circuit: outputCircuitUtxo(output),
     isDummy: asField(output.isDummy() ? 1n : 0n),

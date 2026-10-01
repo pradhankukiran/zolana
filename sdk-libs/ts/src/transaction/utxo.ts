@@ -372,6 +372,26 @@ export class ProofInputUtxo {
   }
 
   /**
+   * Compact padding in `treeId`: an unused slot that publishes nullifier 0, so
+   * the instruction leaves it out and SPP creates nothing for it. It cannot
+   * fill input slot 0. Mirrors Rust `SppProofInputUtxo::compact`.
+   */
+  static compact(treeId: TreeId = DEFAULT_TREE_ID): ProofInputUtxo {
+    const checkedTree = checkedTreeId(treeId);
+    return new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: ShieldedPublicKey.zeroed(),
+        asset: DUMMY_ASSET,
+        amount: 0n,
+        blinding: copy(ZERO_32),
+      }),
+      nullifierPublicKey: ZERO_32,
+      nullifier: ZERO_32,
+      treeId: checkedTree,
+    });
+  }
+
+  /**
    * Rebinds a dummy to another tree and recomputes its zero-key nullifier.
    * A real input's nullifier must be derived by `ShieldedKeys` for that tree.
    */
@@ -384,6 +404,10 @@ export class ProofInputUtxo {
 
   isDummy(): boolean {
     return this.utxo.owner.isZero();
+  }
+
+  isCompact(): boolean {
+    return this.isDummy() && isZero(this.#nullifier);
   }
 
   withCacheSlot(slot: number): ProofInputUtxo {
@@ -489,7 +513,12 @@ function noncanonicalDummyField(input: ProofInputUtxo): string | undefined {
   if (!isZero(committedHash(input.dataHash))) return "data_hash";
   if (!isZero(committedHash(input.ringDataHash))) return "ring_data_hash";
   if (!isZero(input.nullifierPublicKey)) return "nullifier_public_key";
-  if (!equal(input.nullifier(), dummyNullifier(input.utxo, input.treeId))) return "nullifier";
+  // Compact padding publishes nullifier 0 instead of the derived one.
+  if (
+    !isZero(input.nullifier()) &&
+    !equal(input.nullifier(), dummyNullifier(input.utxo, input.treeId))
+  )
+    return "nullifier";
   return undefined;
 }
 
@@ -504,10 +533,13 @@ export interface ProofOutputUtxo {
   readonly ownerTag?: Bytes32;
   readonly data: Data;
   readonly cacheSlot?: number;
+  /** Compact padding: a dummy that publishes hash 0 and is left out of the instruction. */
+  readonly compact?: boolean;
   ownerHash(): Bytes32;
   /** The commitment of this output in `outputTreeId`, the tree it is appended to. */
   hash(outputTreeId: TreeId): Bytes32;
   isDummy(): boolean;
+  isCompact(): boolean;
   withUtxoData(utxoData: Uint8Array, dataHash: Bytes32): ProofOutputUtxo;
   /**
    * A memo rides in the recipient's UTXO but no commitment covers it, so unlike
@@ -530,6 +562,7 @@ export interface ProofOutputInit {
   readonly ownerTag?: Bytes32;
   readonly data?: Data;
   readonly cacheSlot?: number;
+  readonly compact?: boolean;
 }
 
 const DATA_RECORD_ORDER: Readonly<Record<DataRecord["kind"], number>> = Object.freeze({
@@ -575,6 +608,7 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
     data,
     ownerHash,
     hash(outputTreeId: TreeId): Bytes32 {
+      if (input.compact === true && input.ownerAddress === undefined) return copy(ZERO_32);
       return fullOwnerUtxoHash(
         {
           owner: ownerHash(),
@@ -591,6 +625,9 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
     },
     isDummy(): boolean {
       return input.ownerAddress === undefined;
+    },
+    isCompact(): boolean {
+      return input.compact === true && input.ownerAddress === undefined;
     },
     withUtxoData(utxoData: Uint8Array, dataHash: Bytes32): ProofOutputUtxo {
       return createProofOutput({

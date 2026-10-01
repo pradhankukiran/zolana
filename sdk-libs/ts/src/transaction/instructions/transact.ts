@@ -646,6 +646,18 @@ function checkDummiesLast(
   }
 }
 
+function checkCompactLast(
+  slots: readonly Readonly<{ isCompact(): boolean }>[],
+  side: "input" | "output",
+): void {
+  const firstCompact = slots.findIndex((slot) => slot.isCompact());
+  if (firstCompact < 0) return;
+  const index = slots.findIndex((slot, position) => position > firstCompact && !slot.isCompact());
+  if (index >= 0) {
+    throw new TransactionError("TRANSACTION_SLOT_AFTER_COMPACT_PADDING", { side, index });
+  }
+}
+
 function transactionCacheWriteRefusal(refusal: CacheWriteRefusal): TransactionError {
   switch (refusal.reason) {
     case "withoutWriteCache":
@@ -740,6 +752,13 @@ export class SppProofInputs {
     const shape = exactShape(this.inputUtxos.length, this.outputs.length);
     checkDummiesLast(this.inputUtxos, "input");
     checkDummiesLast(this.outputs, "output");
+    // Compact padding is the trailing suffix SPP fills back in, and input slot
+    // 0 seeds the output blindings, so it is never compact.
+    if (this.inputUtxos[0]?.isCompact() === true) {
+      throw new TransactionError("TRANSACTION_NO_INPUTS");
+    }
+    checkCompactLast(this.inputUtxos, "input");
+    checkCompactLast(this.outputs, "output");
     return shape;
   }
 
@@ -791,7 +810,7 @@ export class SppProofInputs {
 
   dummyNullifiers(): readonly Bytes32[] {
     return this.inputUtxos
-      .filter((input) => input.isDummy() || input.cacheSlot !== undefined)
+      .filter((input) => (input.isDummy() && !input.isCompact()) || input.cacheSlot !== undefined)
       .map((input) => new Uint8Array(input.nullifier()) as Bytes32);
   }
 
@@ -860,6 +879,8 @@ export interface PreparedTransfer {
   readonly interfaceTransfers: readonly SettlementTransfer[];
   /** Leading outputs the sender owns, Rust `PreparedOutputLayout::sender_output_count`. */
   readonly senderOutputCount: number;
+  /** Pads unused slots with compact padding instead of random dummies. */
+  readonly compactPadding?: boolean;
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
   proofOutputs(): readonly ProofOutputUtxo[];
@@ -902,6 +923,23 @@ export class ConfidentialTransfer {
   #withdrawal?: Readonly<{ asset: Address; amount: bigint; target: WithdrawalTarget }>;
   #shape?: Shape;
   #ringProgramId?: Address;
+  #compactPadding = false;
+
+  /**
+   * Like the constructor, but pads unused slots with compact padding instead of
+   * random dummies. Compact padding is left out of the instruction and costs no
+   * nullifier account, queue entry or tree leaf, but the transfer then reveals
+   * its real input and output counts. Mirrors Rust `new_compact`.
+   */
+  static compact(
+    owner: ShieldedAddress,
+    inputs: readonly ProofInputUtxo[],
+    feePayer: Address,
+  ): ConfidentialTransfer {
+    const transfer = new ConfidentialTransfer(owner, inputs, feePayer);
+    transfer.#compactPadding = true;
+    return transfer;
+  }
 
   constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], feePayer: Address) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
@@ -1114,6 +1152,7 @@ export class ConfidentialTransfer {
       payer: this.#payer,
       interfaceTransfers: Object.freeze(interfaceTransfers),
       senderOutputCount,
+      ...(this.#compactPadding ? { compactPadding: true } : {}),
     });
   }
 
@@ -1388,17 +1427,26 @@ function finalizeTransfer(
     : { kind: "inline", value: senderResolved };
 
   const { outputs: outputUtxos, padCount, padTag } = finalOutputPlan(prepared);
-  const lastTreeId = prepared.inputTreeIds.at(-1);
-  if (lastTreeId === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  // Random dummies join the last input tree, as the prover hashes them. Compact
+  // padding takes the first: SPP reads its omitted tree index as 0.
+  const paddingTreeId = prepared.compactPadding
+    ? prepared.inputTreeIds[0]
+    : prepared.inputTreeIds.at(-1);
+  if (paddingTreeId === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
   const inputUtxos = [...prepared.inputs];
   while (inputUtxos.length < prepared.shape.inputs) {
-    inputUtxos.push(ProofInputUtxo.dummy(undefined, lastTreeId));
+    inputUtxos.push(
+      prepared.compactPadding
+        ? ProofInputUtxo.compact(paddingTreeId)
+        : ProofInputUtxo.dummy(undefined, paddingTreeId),
+    );
   }
 
   // Length-matched random ciphertext for every position without a real encoding:
   // padded slots and slots the payload leaves empty.
   const needsDummyCiphertext =
-    padCount > 0 || prepared.outputs.some((_, index) => encrypted.payload[index] === undefined);
+    (padCount > 0 && prepared.compactPadding !== true) ||
+    prepared.outputs.some((_, index) => encrypted.payload[index] === undefined);
   const dummyLength = needsDummyCiphertext ? dummyCiphertextLength(encrypted.salt) : 0;
 
   // 1:1 output assembly. Every published slot carries its own ciphertext.
@@ -1411,6 +1459,8 @@ function finalizeTransfer(
   for (let index = 0; index < outputUtxos.length; index++) {
     const output = outputUtxos[index];
     if (!output) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
+    // Compact padding is the trailing suffix SPP fills back in.
+    if (output.isCompact()) continue;
     const slot = encrypted.payload[index];
     const utxoHash = output.hash(prepared.outputTreeId);
     if (output.isDummy()) {
@@ -1494,7 +1544,7 @@ function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
           outputSeed,
           prepared.outputs.length + offset,
         ),
-        ownerTag: padTag,
+        ...(prepared.compactPadding ? { compact: true } : { ownerTag: padTag }),
       }),
     ),
   ];
@@ -1517,6 +1567,7 @@ function outputInit(output: ProofOutputUtxo): ProofOutputInit {
     ...(output.ringDataHash === undefined ? {} : { ringDataHash: output.ringDataHash }),
     ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
     ...(output.ownerTag === undefined ? {} : { ownerTag: output.ownerTag }),
+    ...(output.compact === true ? { compact: true } : {}),
   };
 }
 

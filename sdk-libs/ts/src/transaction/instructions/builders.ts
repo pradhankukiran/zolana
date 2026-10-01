@@ -67,7 +67,10 @@ export class PreparedMerge {
       expiryUnixTs: bigint;
       signingPublicKey: ShieldedPublicKey;
       nullifierPublicKey: Bytes32;
-      /** One per padded slot, in slot order: `mergeDummyNullifier(firstNullifier, slot)`. */
+      /**
+       * One per padded slot other than compact padding, in slot order:
+       * `mergeDummyNullifier(firstNullifier, slot)`.
+       */
       dummyNullifiers: readonly Bytes32[];
       /** `mergePrivateTxBlinding(firstNullifier)`. */
       privateTxBlinding: Bytes32;
@@ -85,7 +88,7 @@ export class PreparedMerge {
     input.inputs.forEach((spend, index) => {
       if (spend.isDummy()) {
         sawDummy = true;
-        dummies++;
+        if (!spend.isCompact()) dummies++;
       } else if (sawDummy) {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
       }
@@ -218,6 +221,13 @@ export class Merge {
       dummyNullifiers: readonly Bytes32[];
       outputTreeId?: TreeId;
       ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
+      /**
+       * Pads the circuit with compact padding instead of deterministic dummies,
+       * so `dummyNullifiers` is empty. Compact padding is left out of the
+       * instruction, but the merge then reveals its real input count. Mirrors
+       * Rust `MergeTransaction::new_compact`.
+       */
+      compact?: boolean;
     }>,
   ) {
     const inputs = input.inputs;
@@ -255,7 +265,13 @@ export class Merge {
     });
     const inputTreeId = singleInputTreeId(inputs);
     const padded = [...inputs];
-    while (padded.length < width) padded.push(ProofInputUtxo.dummy(undefined, inputTreeId));
+    while (padded.length < width) {
+      padded.push(
+        input.compact === true
+          ? ProofInputUtxo.compact(inputTreeId)
+          : ProofInputUtxo.dummy(undefined, inputTreeId),
+      );
+    }
     this.#prepared = new PreparedMerge({
       inputs: padded,
       output: createProofOutput({
@@ -286,6 +302,7 @@ export class Merge {
     keypair: ShieldedKeypair,
     inputs: readonly ProofInputUtxo[],
     outputTreeId: TreeId = DEFAULT_TREE_ID,
+    options: Readonly<{ compact?: boolean }> = {},
   ): Merge {
     const first = inputs[0];
     if (!first) throw new TransactionError("TRANSACTION_NO_INPUTS");
@@ -297,10 +314,14 @@ export class Merge {
         inputs,
         outputBlinding: mergeOutputBlinding(nullifierKey, firstNullifier),
         privateTxBlinding: mergePrivateTxBlinding(nullifierKey, firstNullifier),
-        dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
-          mergeDummyNullifier(nullifierKey, firstNullifier, slot),
-        ),
+        dummyNullifiers:
+          options.compact === true
+            ? []
+            : PreparedMerge.dummySlots(inputs.length).map((slot) =>
+                mergeDummyNullifier(nullifierKey, firstNullifier, slot),
+              ),
         outputTreeId,
+        ...(options.compact === true ? { compact: true } : {}),
       });
     } finally {
       nullifierKey.destroy();
