@@ -84,15 +84,38 @@ export class PreparedMerge {
       });
     }
     let sawDummy = false;
+    let sawCompact = false;
     let dummies = 0;
+    let sent = 0;
     input.inputs.forEach((spend, index) => {
+      if (spend.isCompact()) {
+        sawCompact = true;
+        return;
+      }
+      // SPP appends the zeros after the sent nullifiers, so compact padding
+      // anywhere else proves a different chain than SPP rebuilds.
+      if (sawCompact) {
+        throw new TransactionError("TRANSACTION_SLOT_AFTER_COMPACT_PADDING", {
+          side: "input",
+          index,
+        });
+      }
+      sent++;
       if (spend.isDummy()) {
         sawDummy = true;
-        if (!spend.isCompact()) dummies++;
+        dummies++;
       } else if (sawDummy) {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
       }
     });
+    // SPP picks the merge circuit from the sent count, so compact padding must
+    // fill exactly the narrowest circuit that holds the sent inputs.
+    if (sawCompact && mergePaddedInputCount(sent) !== input.inputs.length) {
+      throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
+        inputs: input.inputs.length,
+        sent,
+      });
+    }
     if (input.dummyNullifiers.length !== dummies) {
       throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
         field: "dummyNullifiers",
@@ -225,13 +248,17 @@ export class Merge {
        * Pads the circuit with compact padding instead of deterministic dummies,
        * so `dummyNullifiers` is empty. Compact padding is left out of the
        * instruction, but the merge then reveals its real input count. Mirrors
-       * Rust `MergeTransaction::new_compact`.
+       * Rust `MergeTransaction::new_compact`; a ring merge refuses it.
        */
       compact?: boolean;
     }>,
   ) {
     const inputs = input.inputs;
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
+    // Ring merges keep the deterministic dummies, as in Rust.
+    if (input.compact === true && input.ring !== undefined) {
+      throw new TransactionError("TRANSACTION_RING_MERGE_COMPACT_PADDING");
+    }
     const width = paddedInputCount(inputs.length);
     const address = input.address;
     const owner = address.signingPublicKey;

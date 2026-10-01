@@ -671,7 +671,10 @@ export function prepareSlots(
   const treeIndexes: number[] = [];
   const transferInputs = inputs.map((input, index) => {
     let treeSlot = treeIds.indexOf(input.treeId);
-    if (input.isDummy()) {
+    if (input.isCompact()) {
+      if (treeIds.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
+      treeSlot = COMPACT_TREE_SLOT;
+    } else if (input.isDummy()) {
       if (treeIds.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
       if (treeSlot === -1)
         throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", { details: { index } });
@@ -744,16 +747,18 @@ export function assembleSlots(
     const openRun = runs[openIndex];
     if (input.isDummy()) {
       if (runs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
-      if (openRun === undefined) {
-        throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", { details: { index } });
-      }
+      // SPP packs tree index 0 for the slots it never receives, so compact
+      // padding takes it whichever tree the slot names.
       if (input.isCompact()) {
-        const converted = createCompactTransferInput(input, openIndex);
+        const converted = createCompactTransferInput(input, COMPACT_TREE_SLOT);
         transferInputs.push(converted);
         nullifiers.push(new Uint8Array(32) as Bytes32);
         inputOwnerFields.push(converted.ownerPublicKeyHash);
-        treeIndexes.push(openIndex);
+        treeIndexes.push(COMPACT_TREE_SLOT);
         continue;
+      }
+      if (openRun === undefined) {
+        throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", { details: { index } });
       }
       const proof = dummyNullifierProofs[dummyProofIndex++];
       if (!proof) {
@@ -1114,6 +1119,9 @@ export function treeSlotFields(slot: TreeSlot): TreeSlotFields {
 
 /** Slot 0, the only slot a single-tree proof opens against. */
 const INPUT_TREE_SLOT = 0;
+
+/** The tree index SPP packs into `input_flags` for a slot it never receives. */
+const COMPACT_TREE_SLOT = 0;
 
 export function createRealInput(
   input: ProofInputUtxo,

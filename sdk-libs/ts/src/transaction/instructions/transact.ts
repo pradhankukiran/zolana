@@ -549,7 +549,8 @@ export function createEncryptedTransaction(
 export function inputTreeIds(inputs: readonly ProofInputUtxo[]): readonly TreeId[] {
   const trees: TreeId[] = [];
   inputs.forEach((input, index) => {
-    if (trees.includes(input.treeId)) return;
+    // Compact padding never reaches SPP, so its tree is not an input tree.
+    if (input.isCompact() || trees.includes(input.treeId)) return;
     if (trees.length === MAX_INPUT_TREES) {
       throw new TransactionError("TRANSACTION_TOO_MANY_INPUT_TREES", {
         index,
@@ -634,29 +635,21 @@ export function transactMessageHash(privateTxHash: Bytes32, externalDataHash: By
   );
 }
 
-function checkDummiesLast(
-  slots: readonly Readonly<{ isDummy(): boolean }>[],
+/** Refuses with `code` the first slot that is not `padding` after one that is. */
+function checkPaddingLast<Slot>(
+  slots: readonly Slot[],
+  padding: (slot: Slot) => boolean,
   side: "input" | "output",
+  code: "TRANSACTION_REAL_SLOT_AFTER_DUMMY" | "TRANSACTION_SLOT_AFTER_COMPACT_PADDING",
 ): void {
-  const firstDummy = slots.findIndex((slot) => slot.isDummy());
-  if (firstDummy < 0) return;
-  const index = slots.findIndex((slot, position) => position > firstDummy && !slot.isDummy());
-  if (index >= 0) {
-    throw new TransactionError("TRANSACTION_REAL_SLOT_AFTER_DUMMY", { side, index });
-  }
+  const first = slots.findIndex(padding);
+  if (first < 0) return;
+  const index = slots.findIndex((slot, position) => position > first && !padding(slot));
+  if (index >= 0) throw new TransactionError(code, { side, index });
 }
 
-function checkCompactLast(
-  slots: readonly Readonly<{ isCompact(): boolean }>[],
-  side: "input" | "output",
-): void {
-  const firstCompact = slots.findIndex((slot) => slot.isCompact());
-  if (firstCompact < 0) return;
-  const index = slots.findIndex((slot, position) => position > firstCompact && !slot.isCompact());
-  if (index >= 0) {
-    throw new TransactionError("TRANSACTION_SLOT_AFTER_COMPACT_PADDING", { side, index });
-  }
-}
+const isDummySlot = (slot: Readonly<{ isDummy(): boolean }>): boolean => slot.isDummy();
+const isCompactSlot = (slot: Readonly<{ isCompact(): boolean }>): boolean => slot.isCompact();
 
 function transactionCacheWriteRefusal(refusal: CacheWriteRefusal): TransactionError {
   switch (refusal.reason) {
@@ -750,15 +743,25 @@ export class SppProofInputs {
 
   checkShape(): Shape {
     const shape = exactShape(this.inputUtxos.length, this.outputs.length);
-    checkDummiesLast(this.inputUtxos, "input");
-    checkDummiesLast(this.outputs, "output");
+    checkPaddingLast(this.inputUtxos, isDummySlot, "input", "TRANSACTION_REAL_SLOT_AFTER_DUMMY");
+    checkPaddingLast(this.outputs, isDummySlot, "output", "TRANSACTION_REAL_SLOT_AFTER_DUMMY");
     // Compact padding is the trailing suffix SPP fills back in, and input slot
     // 0 seeds the output blindings, so it is never compact.
     if (this.inputUtxos[0]?.isCompact() === true) {
       throw new TransactionError("TRANSACTION_NO_INPUTS");
     }
-    checkCompactLast(this.inputUtxos, "input");
-    checkCompactLast(this.outputs, "output");
+    checkPaddingLast(
+      this.inputUtxos,
+      isCompactSlot,
+      "input",
+      "TRANSACTION_SLOT_AFTER_COMPACT_PADDING",
+    );
+    checkPaddingLast(
+      this.outputs,
+      isCompactSlot,
+      "output",
+      "TRANSACTION_SLOT_AFTER_COMPACT_PADDING",
+    );
     return shape;
   }
 

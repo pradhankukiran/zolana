@@ -14,6 +14,7 @@ import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { PreparedMerge } from "../../transaction/instructions/builders.js";
+import type { TreeId } from "../../transaction/utxo.js";
 import { privateTxHash as computePrivateTxHash } from "../../transaction/instructions/transact.js";
 
 import { CACHE_CAPACITY } from "../../interface/state.js";
@@ -250,6 +251,38 @@ function assembleMergeUnchecked(
   });
 }
 
+interface MergePublicInputFields {
+  /** One per circuit slot, 0 for compact padding. */
+  readonly nullifiers: readonly bigint[];
+  readonly outputHash: bigint;
+  readonly outputTreeId: TreeId;
+  readonly privateTxHash: bigint;
+  readonly externalDataHash: bigint;
+  /**
+   * The owner binding: the signing and nullifier public keys on the plain
+   * rail, the output ring data hash and ring program id on a ring merge.
+   */
+  readonly owner: readonly [bigint, bigint];
+}
+
+/**
+ * The merge public inputs without the tree slots, which
+ * `resolvedPublicInputHash` inserts. The nullifier chain folds to the right
+ * over the circuit width; the 1 is the dummy-input policy merge always
+ * publishes. Mirrors the element order of Rust `MergeProver::build`.
+ */
+export function mergePublicInputs(input: MergePublicInputFields): readonly bigint[] {
+  return [
+    rightHashChain4(input.nullifiers),
+    input.outputHash,
+    bytesToBigInt(treeIdField(input.outputTreeId)),
+    input.privateTxHash,
+    input.externalDataHash,
+    1n,
+    ...input.owner,
+  ];
+}
+
 interface PreparedMergeAssembly {
   readonly inputs: IndexedProofInputs & {
     readonly circuit: "merge";
@@ -326,17 +359,20 @@ export function prepareMerge(
     "merge owner public key",
   );
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
-  const publicInputs = [
-    rightHashChain4(nullifiers.map(bytesToBigInt)),
-    bytesToBigInt(outputHash),
-    outputTreeIdField,
-    bytesToBigInt(privateTxHash),
-    bytesToBigInt(externalDataHash),
-    1n,
-    ...(prepared.output.ringProgramId === undefined
-      ? [ownerPublicKeyHash, bytesField(prepared.nullifierPublicKey, "merge nullifier public key")]
-      : [BigInt(output.circuit.ringDataHash), BigInt(output.circuit.ringProgramId)]),
-  ].map(asField);
+  const publicInputs = mergePublicInputs({
+    nullifiers: nullifiers.map(bytesToBigInt),
+    outputHash: bytesToBigInt(outputHash),
+    outputTreeId: prepared.outputTreeId,
+    privateTxHash: bytesToBigInt(privateTxHash),
+    externalDataHash: bytesToBigInt(externalDataHash),
+    owner:
+      prepared.output.ringProgramId === undefined
+        ? [
+            ownerPublicKeyHash,
+            bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
+          ]
+        : [BigInt(output.circuit.ringDataHash), BigInt(output.circuit.ringProgramId)],
+  }).map(asField);
   const payload: PreparedMergeInputs = Object.freeze({
     inputs: Object.freeze(inputs),
     output,

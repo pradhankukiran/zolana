@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LocalKeys, ZolanaClient } from "../src/client/index.js";
 
 import { inputFlags } from "../src/client/internal.js";
-import { assemble } from "../src/client/prover/assembly.js";
+import { assemble, prepareTransfer } from "../src/client/prover/assembly.js";
 import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
@@ -247,6 +247,38 @@ describe("a transact spending from two trees", () => {
     expect(() => assemble(fixture.proofInputs, fixture.spendProofs, [strayRoot])).toThrow(
       expect.objectContaining({ code: "CLIENT_NULLIFIER_ROOT_MISMATCH" }),
     );
+  });
+});
+
+describe("compact padding in a two-tree spend", () => {
+  // SPP packs tree index 0 for the slots it never receives, so a compact slot
+  // proves index 0 whichever tree it names, including one no spend opened.
+  it.each([TREE_1.treeId, 5])("packs tree index 0 for compact padding naming tree %i", (treeId) => {
+    const fixture = twoTreeFixture();
+    const [first, second] = fixture.proofInputs.inputUtxos;
+    if (first === undefined || second === undefined) expect.unreachable();
+    const proofInputs = new SppProofInputs({
+      payer: fixture.proofInputs.payer,
+      inputUtxos: [first, second, ProofInputUtxo.compact(treeId)],
+      outputs: fixture.proofInputs.outputs,
+      externalData: fixture.proofInputs.externalData,
+      blindingSeed: fixture.proofInputs.blindingSeed,
+      outputTreeId: fixture.proofInputs.outputTreeId,
+    });
+
+    const assembled = assemble(proofInputs, fixture.spendProofs, []);
+    expect(assembled.proverInputs.payload.inputs.map((input) => input.treeSlot)).toEqual([
+      0n,
+      1n,
+      0n,
+    ]);
+    expect(assembled.proverInputs.payload.inputFlags).toBe(inputFlags(true, [0, 1, 0]));
+    expect(assembled.instructionData.inputs.map((input) => input.treeIndex)).toEqual([0, 1]);
+    expect(proofInputs.inputTreeIds()).toEqual([TREE_0.treeId, TREE_1.treeId]);
+
+    const prepared = prepareTransfer(proofInputs);
+    expect(prepared.inputs.payload.inputs.map((input) => input.treeSlot)).toEqual([0n, 1n, 0n]);
+    expect(prepared.inputs.payload.inputFlags).toBe(inputFlags(true, [0, 1, 0]));
   });
 });
 

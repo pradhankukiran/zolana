@@ -56,9 +56,14 @@ Breaking
   which `SppProofInputs.messageHash()` throws for a cache write the program
   would reject → handle them in exhaustive switches.
 - `TransactionErrorCode` gains `TRANSACTION_SLOT_AFTER_COMPACT_PADDING`, which
-  `SppProofInputs.checkShape()` throws for a slot after compact padding, and
-  `ShieldedPoolError` gains `ZeroInputNullifier` and `ZeroOutputUtxoHash` →
-  handle them in exhaustive switches.
+  `SppProofInputs` and `PreparedMerge` throw for a slot after compact padding,
+  and `TRANSACTION_RING_MERGE_COMPACT_PADDING`, which `Merge` throws for
+  compact padding on a ring merge, and `ShieldedPoolError` gains
+  `ZeroInputNullifier` and `ZeroOutputUtxoHash` → handle them in exhaustive
+  switches.
+- `ProofOutputUtxo` requires `isCompact()`, which the outputs
+  `createProofOutput` returns provide → add it to custom `ProofOutputUtxo`
+  implementations, returning `true` only for compact padding.
 - `PROVING_KEY_SHA256S` pins rotated transfer, merge and custom ring policy
   proving keys, so `ProverClient` rejects a proof from a prover on the previous
   keys with `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this
@@ -92,13 +97,19 @@ Added
   `buildSplitTransaction`, `buildMergeTransaction` and the ring transaction
   builders wait out `CLIENT_INDEXER_PROOF_DATA_NOT_READY` up to the retry
   bound instead of failing.
-- `ConfidentialTransfer.compact`, the `compact` option of `Merge` and
-  `Merge.fromKeypair`, and `ProofInputUtxo.compact` pad unused slots with
-  compact padding, which the transaction leaves out and which costs no nullifier
+- `ConfidentialTransfer.compact` and the `compact` options of `Merge`,
+  `Merge.fromKeypair` and `buildMergeTransaction` pad unused slots with compact
+  padding, which the transaction leaves out and which costs no nullifier
   account, queue entry or tree leaf but reveals the real input and output
   counts.
-- `encodeMergeTransactInstructionData` accepts from one to `MAX_MERGE_INPUTS`
-  nullifiers, the count a compact merge sends.
+- `ProofInputUtxo.compact` creates one compact padding input,
+  `ProofOutputInit.compact` makes `createProofOutput` return a compact padding
+  output, `ProofInputUtxo.isCompact()`, `ProofOutputUtxo.isCompact()` and
+  `ProofOutputUtxo.compact` tell compact padding from a random dummy, and
+  `PreparedTransfer.compactPadding` is `true` for a transfer that
+  `ConfidentialTransfer.compact` prepared.
+- Wallet sync recovers the output of a compact merge, which publishes only the
+  nullifiers it sends.
 - `Merge` and the named `inputs` of `buildMergeTransaction` take up to
   `MAX_MERGE_INPUTS` (36) notes in one transaction, padded to the 36-input
   proof above eight, and `buildRingMergeTransaction` and
@@ -108,14 +119,15 @@ Changed
 
 - UTXO selection for transfers, withdrawals, merges and splits skips
   zero-amount UTXOs.
+- `getMergeTransactInstructionAsync` accepts from one to `MAX_MERGE_INPUTS`
+  nullifiers, the counts a compact merge sends, where it took only 8 or 36.
 
 Fixed
 
 - A proof a prover of this release refused with `429` could be refused again
   on retry, `ZolanaClient` now asks that prover to queue the retried proof.
-- Wallet sync skipped the output of a merge with more than eight inputs or with
-  compact padding, such as one the Rust SDK built, and the merged note now
-  appears in the wallet.
+- Wallet sync skipped the output of a merge with more than eight inputs, such
+  as one the Rust SDK built, and the merged note now appears in the wallet.
 - `ZolanaClient.proveMerge` could throw an error other than `ClientError`, and
   every `ZolanaClient` proving method now throws a `ClientError`.
 - `proveCustomRingTransfer` on a ring with a spend window put padding before
