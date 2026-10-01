@@ -1761,7 +1761,9 @@ the five-leg example above clears; under the older 1,232-byte legacy packet it
 did not, and had to be split.
 
 Complete builder layouts, with one writable nullifier PDA per input, one input
-tree also used for outputs, no extra owner signers, and no public legs:
+tree also used for outputs, no extra owner signers, and no public legs. A
+compact row sends fewer slots than its circuit has and fills the rest with
+[compact padding](#compact-padding):
 
 | Transaction | ix data (B) | transaction v1 (B) | addresses |
 | --- | --- | --- | --- |
@@ -1769,12 +1771,18 @@ tree also used for outputs, no extra owner signers, and no public legs:
 | Transact 3 in 3 out | 643 | 993 | 7 |
 | Transact 5 in 3 out | 709 | 1125 | 9 |
 | Transact 36 in 2 out | 1616 | 3055 | 40 |
+| Transact 1 in 3 out, 2x3 compact | 577 | 861 | 5 |
+| Transact 9 in 2 out, 36x2 compact | 725 | 1273 | 13 |
 | Ring transact EdDSA 36 in 2 out | 1616 | 3120 | 42 |
 | Ring transact P256 36 in 2 out | 1713 | 3217 | 42 |
 | Merge 8 in 1 out, direct | 528 | 1172 | 14 |
 | Merge 8 in 1 out, execute_sync | 562 | 1208 | 16 |
 | Merge 36 in 1 out, direct | 1424 | 2992 | 42 |
 | Merge 36 in 1 out, execute_sync | 1486 | 3056 | 44 |
+| Merge 3 in 1 out, 8 compact, direct | 368 | 847 | 9 |
+| Merge 3 in 1 out, 8 compact, execute_sync | 397 | 878 | 11 |
+| Merge 9 in 1 out, 36 compact, direct | 560 | 1237 | 15 |
+| Merge 9 in 1 out, 36 compact, execute_sync | 595 | 1274 | 17 |
 
 v1 imposes a second ceiling that the byte count does not show: a message may
 name at most **64 account addresses**, and a transact adds one nullifier PDA per
