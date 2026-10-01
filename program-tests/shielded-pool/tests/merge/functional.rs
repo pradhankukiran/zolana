@@ -12,7 +12,8 @@ use zolana_interface::{
     NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_test_utils::nullifier_pda::{
-    assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
+    assert_nullifier_pdas, assert_nullifier_pdas_absent, nullifier_pda_addresses,
+    nullifier_pda_rent, tree_fees,
 };
 
 const MERGE_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
@@ -60,12 +61,10 @@ fn merge_with_compact_padding_spends_only_the_real_inputs() {
             ),
             "one output appended and one nullifier queued per real input"
         );
-        assert_eq!(
-            assert_nullifier_pdas(&pool.rpc, &tree, &merge.data.nullifiers)
-                .expect("real nullifier PDAs")
-                .len(),
-            real_input_count
-        );
+        assert_nullifier_pdas(&pool.rpc, &tree, &merge.data.nullifiers)
+            .expect("nullifier PDAs for the real inputs");
+        assert_nullifier_pdas_absent(&pool.rpc, &tree, &[[0u8; 32]])
+            .expect("no nullifier PDA for compact padding");
     }
 }
 

@@ -16,9 +16,9 @@ Regenerate with `just bench-shielded-pool`.
 3. [Deposit sol batch 3](#deposit-sol-batch-3)
 4. [Deposit spl](#deposit-spl)
 5. [Merge 36x1](#merge-36x1)
-6. [Merge 36x1 compact, 9 sent](#merge-36x1-compact,-9-sent)
+6. [Merge 36x1 compact 9 sent](#merge-36x1-compact-9-sent)
 7. [Merge 8x1](#merge-8x1)
-8. [Merge 8x1 compact, 1 sent](#merge-8x1-compact,-1-sent)
+8. [Merge 8x1 compact 1 sent](#merge-8x1-compact-1-sent)
 9. [Pause tree](#pause-tree)
 10. [Transfer eddsa 1x1](#transfer-eddsa-1x1)
 11. [Transfer eddsa 1x2](#transfer-eddsa-1x2)
@@ -83,7 +83,7 @@ Regenerate with `just bench-shielded-pool`.
 | `process_instruction`         |         32 |         32 |
 | `process_instruction`         |    239,203 |     83,612 |
 
-## 6. Merge 36x1 compact, 9 sent
+## 6. Merge 36x1 compact 9 sent
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
@@ -101,7 +101,7 @@ Regenerate with `just bench-shielded-pool`.
 | `process_instruction`         |         32 |         32 |
 | `process_instruction`         |    148,565 |     50,031 |
 
-## 8. Merge 8x1 compact, 1 sent
+## 8. Merge 8x1 compact 1 sent
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |

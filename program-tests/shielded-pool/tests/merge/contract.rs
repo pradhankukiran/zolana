@@ -148,6 +148,27 @@ fn merge_rejects_a_wrong_input_count_shape() {
     }
 }
 
+/// Compact padding is left out of the instruction and filled back in as zeros
+/// at the end, so a sent nullifier of 0 is rejected wherever it sits, before
+/// the proof is checked.
+#[test]
+fn merge_rejects_a_sent_zero_nullifier() {
+    let (mut rpc, tree) = merge_env();
+    let payer = rpc.payer.pubkey();
+    let record = write_user_record(&mut rpc, payer, None, true);
+
+    for slot in [0, 3, MERGE_DEFAULT_INPUT_COUNT - 1] {
+        let mut data = merge_ix_data(true);
+        *data.nullifiers.get_mut(slot).expect("nullifier slot") = [0u8; 32];
+        let ix = merge_instruction(&rpc, &tree, record, data);
+        let error = rpc
+            .create_and_send_default_payer_transaction(&[ix], &[])
+            .err()
+            .unwrap_or_else(|| panic!("a zero nullifier in slot {slot} must be rejected"));
+        Rejection::pool(ShieldedPoolError::ZeroInputNullifier).assert_litesvm(error);
+    }
+}
+
 #[test]
 fn merge_accepts_the_wide_shape_and_fails_only_on_the_proof() {
     let (mut rpc, tree) = merge_env();

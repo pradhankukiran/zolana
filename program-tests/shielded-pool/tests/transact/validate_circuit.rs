@@ -297,6 +297,42 @@ fn cache_writes(pairs: &[(u8, u8)]) -> [zolana_interface::verifying_keys::CacheW
     out
 }
 
+/// With compact padding the instruction sends fewer slots than the circuit
+/// has. Cache reads and writes are checked against the sent slots, so a read
+/// count or a write target that only the compact padding would cover is
+/// rejected.
+#[test]
+fn a_cached_selector_counts_only_the_sent_slots() {
+    use zolana_interface::verifying_keys::CacheAccess;
+    for (read_bitmap, write_slots, valid) in [
+        (0b1, CacheAccess::NO_WRITES, true),
+        (0b11, CacheAccess::NO_WRITES, false),
+        (0, cache_writes(&[(0, 5)]), true),
+        (0, cache_writes(&[(1, 5)]), false),
+        (0, cache_writes(&[(2, 5)]), false),
+    ] {
+        let access = CacheAccess {
+            read_bitmap,
+            write_slots,
+        };
+        let expected = if valid {
+            Ok(())
+        } else {
+            Err(ShieldedPoolError::InvalidCacheBitmap.into())
+        };
+        assert_eq!(
+            validate(
+                CircuitId::ConfidentialEddsaCached(2, 3, 3, access),
+                InstructionTag::Transact,
+                1,
+                1
+            ),
+            expected,
+            "{access:?}"
+        );
+    }
+}
+
 #[test]
 fn a_cached_selector_must_fit_the_inputs_the_outputs_and_the_cache() {
     use zolana_interface::verifying_keys::{CacheAccess, CacheWrite};

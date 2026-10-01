@@ -750,6 +750,7 @@ fn bench_cached_transfer_shape(
         n_outputs,
         cache_nonce: 7,
         cached_slots,
+        compact: false,
     }
     .build(&mut pt, tree, tree_id);
 
@@ -840,7 +841,7 @@ fn bench_merge_shape(
 
     let entries = take_profiling_entries();
     let name = if compact {
-        format!("merge {input_count}x1 compact, {real_input_count} sent")
+        format!("merge {input_count}x1 compact {real_input_count} sent")
     } else {
         format!("merge {input_count}x1")
     };

@@ -628,8 +628,9 @@ pub fn dummy_input(
     Ok((input, nullifier))
 }
 
-/// One compact padding input: nullifier 0 and the zero witness, which the
-/// circuit ignores for that slot. The instruction leaves it out.
+/// One compact padding input: nullifier 0 and zero paths, since the circuit
+/// only checks that the slot is a dummy. The instruction leaves it out, as the
+/// client's `assemble_inputs` does.
 pub fn compact_input(tree_id: u16) -> Result<TransferInput> {
     let zero = [0u8; 32];
     Ok(TransferInput {

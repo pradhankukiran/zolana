@@ -84,6 +84,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     discriminator: u8,
     n_inputs: usize,
     n_outputs: usize,
+    compact_outputs: bool,
 ) -> TransactIxData {
     assert!(
         n_inputs > 0 && n_outputs > 0,
@@ -176,16 +177,38 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
                 .expect("dummy-output seed"); 31]
         })
         .collect();
-    let mut outputs: Vec<TransferOutput> = change_and_dummy_outputs(
-        owner_public_key,
-        change_nullifier_pk,
-        [1u8; 31],
-        &dummy_output_blindings,
-        tree_id,
-    )
-    .expect("change and dummy outputs");
-    let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
+    // With `compact_outputs`, every output slot is compact padding and the
+    // instruction sends none.
+    let mut outputs: Vec<TransferOutput> = if compact_outputs {
+        std::iter::once([1u8; 31])
+            .chain(dummy_output_blindings.iter().copied())
+            .map(|blinding| {
+                dummy_transfer_output(&blinding, tree_id)
+                    .expect("dummy output")
+                    .0
+            })
+            .collect()
+    } else {
+        change_and_dummy_outputs(
+            owner_public_key,
+            change_nullifier_pk,
+            [1u8; 31],
+            &dummy_output_blindings,
+            tree_id,
+        )
+        .expect("change and dummy outputs")
+    };
+    let mut output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
         .expect("derive output blindings");
+    let sent_outputs = if compact_outputs { 0 } else { n_outputs };
+    for (output, hash) in outputs
+        .iter_mut()
+        .zip(output_hashes.iter_mut())
+        .skip(sent_outputs)
+    {
+        output.hash = BigUint::ZERO;
+        *hash = zero;
+    }
 
     let nullifiers: Vec<[u8; 32]> = std::iter::once(nullifier)
         .chain(dummy_nullifiers.iter().copied())
@@ -197,13 +220,18 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
             .collect(),
         utxo_root_index,
         Vec::new(),
-        inline_outputs(&output_hashes, &vec![input_owner_bytes; n_outputs]),
+        inline_outputs(&output_hashes, &vec![input_owner_bytes; sent_outputs]),
     );
+    transact_ix_data.circuit =
+        CircuitId::ConfidentialEddsa(n_inputs as u8, n_outputs as u8, N_PUBLIC_SLOTS as u8);
 
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     let mut output_nullifier_pks = vec![zero; n_outputs];
-    if let Some(change) = output_nullifier_pks.first_mut() {
+    if let Some(change) = output_nullifier_pks
+        .first_mut()
+        .filter(|_| !compact_outputs)
+    {
         *change = change_nullifier_pk;
     }
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &output_nullifier_pks);
@@ -221,7 +249,10 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         *real = utxo_hash;
     }
     let mut private_output_hashes = vec![zero; n_outputs];
-    if let Some(change) = private_output_hashes.first_mut() {
+    if let Some(change) = private_output_hashes
+        .first_mut()
+        .filter(|_| !compact_outputs)
+    {
         *change = change_output_hash;
     }
     let private_tx = PrivateTxHash::new(
@@ -303,7 +334,14 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
 }
 
 fn build_valid_transact_ix_for_owner(env: &mut Pool, input_owner: Pubkey) -> TransactIxData {
-    build_valid_transact_ix_for_owner_with_discriminator(env, input_owner, tag::TRANSACT, 2, 3)
+    build_valid_transact_ix_for_owner_with_discriminator(
+        env,
+        input_owner,
+        tag::TRANSACT,
+        2,
+        3,
+        false,
+    )
 }
 
 fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
@@ -759,11 +797,53 @@ fn transact_sends_valid_proof() {
     assert_nullifier_pdas(&env.rpc, &tree, &expected_nullifiers).expect("nullifier PDAs");
 }
 
-/// A tampered output owner tag (changed after proving, so
-/// `solana_owner_identity(resolved_owner_tag)` no longer matches the proof's committed
-/// output-owner chain) must be rejected: the program reconstructs the owner tags
-/// from the instruction's outputs and the resulting public input no longer
-/// matches the proof.
+/// SPP accepts a transact that sends no outputs: every output slot is compact
+/// padding, so nothing is appended while both inputs are nullified.
+#[test]
+fn transact_with_no_sent_outputs_appends_nothing() {
+    let mut env = proof_env();
+    let payer = env.rpc.payer.pubkey();
+    let tree = env.tree;
+    let data = build_valid_transact_ix_for_owner_with_discriminator(
+        &mut env,
+        payer,
+        tag::TRANSACT,
+        2,
+        3,
+        true,
+    );
+    assert!(data.outputs.is_empty());
+    let nullifiers: Vec<[u8; 32]> = data
+        .inputs
+        .iter()
+        .map(|input| input.nullifier_hash)
+        .collect();
+    let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
+    let ix = Transact {
+        payer,
+        input_trees: vec![tree],
+        output_tree: tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data,
+    }
+    .instruction();
+    env.rpc
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(1_400_000),
+        )
+        .expect("transact with no sent outputs");
+    assert_eq!(
+        tree_progress(&env.rpc, &tree),
+        (utxo_next_before, nullifier_next_before + 2),
+        "no output appended and both inputs nullified"
+    );
+    zolana_test_utils::nullifier_pda::assert_nullifier_pdas(&env.rpc, &tree, &nullifiers)
+        .expect("nullifier PDAs for the sent inputs");
+}
+
 /// One zero-value deposit spent through the SDK in the 2x3 shape, padded with
 /// compact padding when `compact` is set and with random dummies otherwise.
 fn single_deposit_spend(
@@ -906,22 +986,24 @@ fn transact_with_compact_padding_spends_and_appends_only_the_sent_slots() {
         (utxo_next_before + 1, nullifier_next_before + 1),
         "one output appended and one nullifier queued"
     );
-    assert_eq!(
-        zolana_test_utils::nullifier_pda::assert_nullifier_pdas(&env.rpc, &tree, &nullifiers)
-            .expect("nullifier PDA")
-            .len(),
-        1
-    );
+    zolana_test_utils::nullifier_pda::assert_nullifier_pdas(&env.rpc, &tree, &nullifiers)
+        .expect("nullifier PDA for the sent input");
+    zolana_test_utils::nullifier_pda::assert_nullifier_pdas_absent(&env.rpc, &tree, &[[0u8; 32]])
+        .expect("no nullifier PDA for compact padding");
 }
 
 /// INV-TRANSACT-33: once a spend would leave the nullifier tree too little room
-/// for random dummy inputs, SPP publishes `allow_dummy_inputs = false`. Compact
-/// padding inserts nothing, so a spend padded with it still lands.
+/// for random dummy inputs, SPP publishes `allow_dummy_inputs = false`. A spend
+/// padded with random dummies is refused before proving, and one built with
+/// compact padding, which inserts nothing, still lands.
 #[test]
-fn transact_past_the_dummy_threshold_pads_with_compact_inputs() {
+fn transact_past_the_dummy_threshold_accepts_only_compact_padding() {
     let mut env = proof_env();
     let tree = env.tree;
-    let (keypair, mut proof_inputs, spend) = single_deposit_spend(&mut env, false);
+    // The refusal happens before anything reaches SPP, so the random-dummy
+    // spend can come from a pool of its own.
+    let (dummy_keypair, dummy_padded, _) = single_deposit_spend(&mut proof_env(), false);
+    let (keypair, proof_inputs, spend) = single_deposit_spend(&mut env, true);
     let mut account = env.rpc.svm.get_account(&tree).expect("tree account");
     {
         let mut on_chain =
@@ -951,15 +1033,30 @@ fn transact_past_the_dummy_threshold_pads_with_compact_inputs() {
         .set_account(tree, account)
         .expect("write threshold tree account");
 
-    proof_inputs
-        .compact_input_padding()
-        .expect("compact input padding");
+    assert!(matches!(
+        zolana_client::prover::indexed::IndexedTransferPreparation {
+            transaction: dummy_padded,
+            rail: zolana_client::prover::indexed::IndexedTransferRail::Confidential,
+        }
+        .prepare_with_dummy_policy(&dummy_keypair, false),
+        Err(zolana_client::ClientError::NonSpendInputNotAllowed { index: 1 })
+    ));
     let assembled = zolana_client::assemble_with_dummy_policy(proof_inputs, &[spend], &[], false)
         .expect("assemble without dummy inputs");
-    let (nullifiers, _) = send_assembled_spend(&mut env, &keypair, assembled);
-    assert_eq!(nullifiers.len(), 1);
+    let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
+    send_assembled_spend(&mut env, &keypair, assembled);
+    assert_eq!(
+        tree_progress(&env.rpc, &tree),
+        (utxo_next_before + 1, nullifier_next_before + 1),
+        "one output appended and one nullifier queued"
+    );
 }
 
+/// A tampered output owner tag (changed after proving, so
+/// `solana_owner_identity(resolved_owner_tag)` no longer matches the proof's committed
+/// output-owner chain) must be rejected: the program reconstructs the owner tags
+/// from the instruction's outputs and the resulting public input no longer
+/// matches the proof.
 #[test]
 fn transact_rejects_tampered_output_owner_tag() {
     let mut env = proof_env();
@@ -1381,6 +1478,7 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
         tag::RING_TRANSACT,
         2,
         3,
+        false,
     );
     transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
@@ -1588,6 +1686,7 @@ fn transact_accepts_the_consolidation_shape() {
         tag::TRANSACT,
         shape.n_inputs(),
         shape.n_outputs(),
+        false,
     );
     assert_eq!(
         transact_ix_data.circuit,
